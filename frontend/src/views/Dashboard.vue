@@ -54,6 +54,11 @@
 
       <!-- Analysis Panels -->
       <div class="panels-grid">
+        <!-- Trading Recommendation (Full Width) -->
+        <div class="full-width-panel">
+          <TradingRecommendation :analysis="store.analysisResult" />
+        </div>
+
         <!-- Left Column -->
         <div class="left-column">
           <TrendPanel :trend="store.analysisResult.trend" :trend-color="store.trendColor" />
@@ -83,6 +88,7 @@ import IndicatorPanel from '../components/IndicatorPanel.vue'
 import SRLevelPanel from '../components/SRLevelPanel.vue'
 import PatternPanel from '../components/PatternPanel.vue'
 import MarketStructurePanel from '../components/MarketStructurePanel.vue'
+import TradingRecommendation from '../components/TradingRecommendation.vue'
 
 const store = useAnalysisStore()
 let refreshTimer: number | null = null
@@ -300,6 +306,10 @@ function formatTime(date: Date): string {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 24px;
+}
+
+.full-width-panel {
+  grid-column: 1 / -1;
 }
 
 .left-column,
