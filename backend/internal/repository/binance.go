@@ -4,32 +4,32 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/adshao/go-binance/v2"
+	"github.com/adshao/go-binance/v2/futures"
 	"github.com/kudaompq/ai_trending/backend/internal/model"
 )
 
 // BinanceRepository handles data fetching from Binance API
 type BinanceRepository struct {
-	client *binance.Client
+	client *futures.Client
 }
 
 // NewBinanceRepository creates a new Binance repository
 func NewBinanceRepository() *BinanceRepository {
-	// Initialize Binance client (no API key needed for public data)
-	client := binance.NewClient("", "")
+	// Initialize Binance Futures client (no API key needed for public data)
+	client := futures.NewClient("", "")
 	return &BinanceRepository{
 		client: client,
 	}
 }
 
-// GetKlines fetches K-line data from Binance
+// GetKlines fetches K-line data from Binance Futures
 func (r *BinanceRepository) GetKlines(symbol, interval string, limit int) ([]model.Candle, error) {
 	klines, err := r.client.NewKlinesService().
 		Symbol(symbol).
 		Interval(interval).
 		Limit(limit).
 		Do(context.Background())
-	
+
 	if err != nil {
 		return nil, err
 	}
