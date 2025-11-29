@@ -10,6 +10,7 @@
         
         <div class="controls">
           <el-select v-model="store.interval" @change="handleRefresh" size="large">
+            <el-option label="15分钟" value="15m" />
             <el-option label="1小时" value="1h" />
             <el-option label="4小时" value="4h" />
             <el-option label="1天" value="1d" />
@@ -51,9 +52,9 @@
 
     <!-- Main Content -->
     <div v-if="store.analysisResult" class="content">
-      <!-- K-line Chart -->
+      <!-- Simple Chart -->
       <div class="chart-section">
-        <KlineChart
+        <SimpleChart
           v-if="store.klineData"
           :candles="store.klineData.data"
           :resistance="store.analysisResult.sr_levels.resistance"
@@ -98,7 +99,7 @@
 import { onMounted } from 'vue'
 import { Refresh, Loading } from '@element-plus/icons-vue'
 import { useAnalysisStore } from '../stores/analysis'
-import KlineChart from '../components/KlineChart.vue'
+import SimpleChart from '../components/SimpleChart.vue'
 import TrendPanel from '../components/TrendPanel.vue'
 import IndicatorPanel from '../components/IndicatorPanel.vue'
 import SRLevelPanel from '../components/SRLevelPanel.vue'
