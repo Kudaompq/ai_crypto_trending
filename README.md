@@ -45,27 +45,42 @@ ai_trending/
 │   │   ├── indicator/          # 技术指标
 │   │   └── model/              # 数据模型
 │   └── go.mod
-└── frontend/                   # Vue3 前端（待实现）
+└── frontend/                   # Vue3 前端
+    ├── src/
+    │   ├── views/              # 页面组件
+    │   ├── components/         # 通用组件
+    │   ├── stores/             # 状态管理
+    │   └── api/                # API 接口
+    └── package.json
 ```
 
 ## 快速开始
 
-### 后端
+### 1. 启动后端
 
-1. **安装依赖**
 ```bash
 cd backend
 go mod download
-```
-
-2. **运行服务器**
-```bash
 go run cmd/server/main.go
 ```
 
 服务器将在 `http://localhost:8080` 启动
 
-### API 端点
+### 2. 启动前端
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+前端将在 `http://localhost:5173` 启动
+
+### 3. 访问应用
+
+在浏览器中打开: `http://localhost:5173`
+
+## API 端点
 
 #### 1. 健康检查
 ```bash
@@ -157,7 +172,7 @@ GET /api/analysis?symbol=ETHUSDT&interval=1d&limit=100
 - **数据源**: Binance API
 - **技术指标**: TA-Lib
 
-### 前端（待实现）
+### 前端
 - **框架**: Vue 3 + TypeScript
 - **构建工具**: Vite
 - **图表**: TradingView Lightweight Charts
@@ -167,7 +182,7 @@ GET /api/analysis?symbol=ETHUSDT&interval=1d&limit=100
 
 - [x] Phase 0: 学习日本蜡烛图技术
 - [x] Phase 1: 后端基础架构
-- [ ] Phase 2: 前端开发
+- [x] Phase 2: 前端开发
 - [ ] Phase 3: 优化与测试
 
 ## 许可证
