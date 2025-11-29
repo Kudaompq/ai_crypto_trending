@@ -3,6 +3,18 @@ import { ref, computed } from 'vue'
 import { api, type AnalysisResult, type KlineData } from '../services/api'
 
 export const useAnalysisStore = defineStore('analysis', () => {
+    // Available trading pairs
+    const availableSymbols = [
+        { label: 'BTC/USDT', value: 'BTCUSDT', icon: '₿' },
+        { label: 'ETH/USDT', value: 'ETHUSDT', icon: 'Ξ' },
+        { label: 'BNB/USDT', value: 'BNBUSDT', icon: '🔶' },
+        { label: 'SOL/USDT', value: 'SOLUSDT', icon: '◎' },
+        { label: 'XRP/USDT', value: 'XRPUSDT', icon: '✕' },
+        { label: 'ADA/USDT', value: 'ADAUSDT', icon: '₳' },
+        { label: 'DOGE/USDT', value: 'DOGEUSDT', icon: 'Ð' },
+        { label: 'MATIC/USDT', value: 'MATICUSDT', icon: '⬡' }
+    ]
+
     // State
     const symbol = ref('ETHUSDT')
     const interval = ref('1d')
@@ -59,6 +71,9 @@ export const useAnalysisStore = defineStore('analysis', () => {
     }
 
     return {
+        // Available symbols
+        availableSymbols,
+
         // State
         symbol,
         interval,

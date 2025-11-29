@@ -1,7 +1,7 @@
 <template>
   <div class="simple-chart-container">
     <div class="chart-header">
-      <h3>📈 ETH/USDT K线图</h3>
+      <h3>📈 {{ symbolLabel }} K线图</h3>
       <div class="current-price" v-if="candles && candles.length > 0">
         <span class="label">当前价格:</span>
         <span class="price" :class="priceClass">${{ currentPrice.toFixed(2) }}</span>
@@ -106,7 +106,14 @@ const props = defineProps<{
   candles: Candle[]
   resistance?: SRLevel[]
   support?: SRLevel[]
+  symbol?: string
 }>()
+
+const symbolLabel = computed(() => {
+  if (!props.symbol) return 'ETH/USDT'
+  // Convert BTCUSDT to BTC/USDT format
+  return props.symbol.replace('USDT', '/USDT')
+})
 
 const displayCandles = computed(() => {
   if (!props.candles || props.candles.length === 0) return []

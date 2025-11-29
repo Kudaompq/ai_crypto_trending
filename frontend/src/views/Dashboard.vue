@@ -5,18 +5,21 @@
       <div class="header-content">
         <h1 class="title">
           <span class="icon">📊</span>
-          ETH 量化分析系统
+          加密货币量化分析系统
         </h1>
-        
+
         <div class="controls">
+          <div class="symbol-selector">
+            <select v-model="store.symbol" @change="changeSymbol" class="symbol-select">
+              <option v-for="sym in store.availableSymbols" :key="sym.value" :value="sym.value">
+                {{ sym.icon }} {{ sym.label }}
+              </option>
+            </select>
+          </div>
+
           <div class="interval-buttons">
-            <button 
-              v-for="option in intervalOptions" 
-              :key="option.value"
-              class="interval-btn"
-              :class="{ active: store.interval === option.value }"
-              @click="changeInterval(option.value)"
-            >
+            <button v-for="option in intervalOptions" :key="option.value" class="interval-btn"
+              :class="{ active: store.interval === option.value }" @click="changeInterval(option.value)">
               {{ option.label }}
             </button>
           </div>
@@ -30,60 +33,41 @@
 
     <!-- Loading State -->
     <div v-if="store.loading && !store.analysisResult" class="loading-overlay">
-      <el-icon class="is-loading" :size="60"><Loading /></el-icon>
+      <el-icon class="is-loading" :size="60">
+        <Loading />
+      </el-icon>
       <div class="loading-text">正在获取数据...</div>
     </div>
 
     <!-- Error State -->
-    <el-alert
-      v-if="store.error"
-      :title="store.error"
-      type="error"
-      show-icon
-      closable
-      @close="store.error = null"
-      style="margin-bottom: 20px"
-    />
+    <el-alert v-if="store.error" :title="store.error" type="error" show-icon closable @close="store.error = null"
+      style="margin-bottom: 20px" />
 
     <!-- Main Content -->
     <div v-if="store.analysisResult" class="content">
       <!-- Simple Chart -->
       <div class="chart-section">
-        <SimpleChart
-          v-if="store.klineData"
-          :candles="store.klineData.data"
-          :resistance="store.analysisResult.sr_levels.resistance"
-          :support="store.analysisResult.sr_levels.support"
-        />
+        <SimpleChart v-if="store.klineData" :candles="store.klineData.data"
+          :resistance="store.analysisResult.sr_levels.resistance" :support="store.analysisResult.sr_levels.support"
+          :symbol="store.symbol" />
       </div>
 
       <!-- Analysis Panels -->
       <div class="panels-grid">
         <!-- Left Column -->
         <div class="left-column">
-          <TrendPanel
-            :trend="store.analysisResult.trend"
-            :trend-color="store.trendColor"
-          />
-          
-          <IndicatorPanel
-            :indicators="store.analysisResult.indicators"
-          />
+          <TrendPanel :trend="store.analysisResult.trend" :trend-color="store.trendColor" />
+
+          <IndicatorPanel :indicators="store.analysisResult.indicators" />
         </div>
 
         <!-- Right Column -->
         <div class="right-column">
-          <SRLevelPanel
-            :sr-levels="store.analysisResult.sr_levels"
-          />
-          
-          <PatternPanel
-            :patterns="store.analysisResult.candlestick_patterns"
-          />
-          
-          <MarketStructurePanel
-            :structure="store.analysisResult.market_structure"
-          />
+          <SRLevelPanel :sr-levels="store.analysisResult.sr_levels" />
+
+          <PatternPanel :patterns="store.analysisResult.candlestick_patterns" />
+
+          <MarketStructurePanel :structure="store.analysisResult.market_structure" />
         </div>
       </div>
     </div>
@@ -112,11 +96,11 @@ const intervalOptions = [
 
 onMounted(() => {
   handleRefresh()
-  
-  // Auto-refresh every second
+
+  // Auto-refresh every 30 seconds (changed from 1 second to prevent UI blocking)
   refreshTimer = window.setInterval(() => {
     handleRefresh()
-  }, 1000)
+  }, 30000)
 })
 
 onUnmounted(() => {
@@ -128,6 +112,10 @@ onUnmounted(() => {
 
 function changeInterval(interval: string) {
   store.setInterval(interval)
+  handleRefresh()
+}
+
+function changeSymbol() {
   handleRefresh()
 }
 
@@ -187,6 +175,41 @@ function formatTime(date: Date): string {
   display: flex;
   gap: 12px;
   align-items: center;
+}
+
+.symbol-selector {
+  position: relative;
+}
+
+.symbol-select {
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  outline: none;
+  min-width: 160px;
+}
+
+.symbol-select:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(102, 126, 234, 0.5);
+  transform: translateY(-1px);
+}
+
+.symbol-select:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
+.symbol-select option {
+  background: #1e1e1e;
+  color: #fff;
+  padding: 8px;
 }
 
 .interval-buttons {
