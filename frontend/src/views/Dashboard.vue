@@ -4,8 +4,21 @@
     <div class="header">
       <div class="header-content">
         <h1 class="title">
-          <span class="icon">📊</span>
-          加密货币量化分析系统
+          <svg width="40" height="40" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"
+            class="logo-icon">
+            <rect width="64" height="64" rx="16" fill="url(#paint0_linear)" />
+            <path d="M12 44L24 32L32 40L52 20" stroke="white" stroke-width="4" stroke-linecap="round"
+              stroke-linejoin="round" />
+            <path d="M52 20V30" stroke="white" stroke-width="4" stroke-linecap="round" />
+            <path d="M52 20H42" stroke="white" stroke-width="4" stroke-linecap="round" />
+            <defs>
+              <linearGradient id="paint0_linear" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#4F46E5" />
+                <stop offset="1" stop-color="#7C3AED" />
+              </linearGradient>
+            </defs>
+          </svg>
+          加密货币趋势分析系统
         </h1>
 
         <div class="controls">
@@ -80,7 +93,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted } from 'vue'
 import { useAnalysisStore } from '../stores/analysis'
 import SimpleChart from '../components/SimpleChart.vue'
 import TrendPanel from '../components/TrendPanel.vue'
@@ -103,10 +116,10 @@ const intervalOptions = [
 onMounted(() => {
   handleRefresh()
 
-  // Auto-refresh every 30 seconds (changed from 1 second to prevent UI blocking)
+  // Auto-refresh every 1 second
   refreshTimer = window.setInterval(() => {
     handleRefresh()
-  }, 30000)
+  }, 1000)
 })
 
 onUnmounted(() => {
@@ -173,9 +186,7 @@ function formatTime(date: Date): string {
   gap: 12px;
 }
 
-.icon {
-  font-size: 36px;
-}
+
 
 .controls {
   display: flex;
