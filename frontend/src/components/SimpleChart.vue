@@ -52,20 +52,42 @@
           </div>
         </div>
 
-        <!-- Candles Display -->
-        <div class="candles-display">
-          <div v-for="(candle, index) in displayCandles" :key="index" class="candle-bar">
+        <!-- Chart Area with SR Lines -->
+        <div class="chart-area">
+          <!-- SR Level Lines (no labels) -->
+          <div class="sr-lines">
+            <!-- Resistance Lines -->
             <div 
-              class="bar" 
-              :class="candle.close >= candle.open ? 'bullish' : 'bearish'"
-              :style="getCandleStyle(candle)"
-            >
-              <div class="tooltip">
-                <div>时间: {{ formatTime(candle.timestamp) }}</div>
-                <div>开: ${{ candle.open.toFixed(2) }}</div>
-                <div>高: ${{ candle.high.toFixed(2) }}</div>
-                <div>低: ${{ candle.low.toFixed(2) }}</div>
-                <div>收: ${{ candle.close.toFixed(2) }}</div>
+              v-for="(level, i) in topResistance" 
+              :key="'r-line-'+i"
+              class="sr-line resistance-line"
+              :style="getSRLineStyle(level.price)"
+            ></div>
+            
+            <!-- Support Lines -->
+            <div 
+              v-for="(level, i) in topSupport" 
+              :key="'s-line-'+i"
+              class="sr-line support-line"
+              :style="getSRLineStyle(level.price)"
+            ></div>
+          </div>
+
+          <!-- Candles Display -->
+          <div class="candles-display">
+            <div v-for="(candle, index) in displayCandles" :key="index" class="candle-bar">
+              <div 
+                class="bar" 
+                :class="candle.close >= candle.open ? 'bullish' : 'bearish'"
+                :style="getCandleStyle(candle)"
+              >
+                <div class="tooltip">
+                  <div>时间: {{ formatTime(candle.timestamp) }}</div>
+                  <div>开: ${{ candle.open.toFixed(2) }}</div>
+                  <div>高: ${{ candle.high.toFixed(2) }}</div>
+                  <div>低: ${{ candle.low.toFixed(2) }}</div>
+                  <div>收: ${{ candle.close.toFixed(2) }}</div>
+                </div>
               </div>
             </div>
           </div>
@@ -134,11 +156,11 @@ const totalVolume = computed(() => {
 })
 
 const topResistance = computed(() => {
-  return props.resistance?.slice(0, 3) || []
+  return props.resistance?.slice(0, 5) || []
 })
 
 const topSupport = computed(() => {
-  return props.support?.slice(0, 3) || []
+  return props.support?.slice(0, 5) || []
 })
 
 const yAxisLabels = computed(() => {
@@ -202,6 +224,17 @@ function getCandleStyle(candle: Candle) {
   
   return {
     height: `${Math.max(bodyHeight, 2)}%`,
+    bottom: `${bottom}%`
+  }
+}
+
+function getSRLineStyle(price: number) {
+  const range = highPrice.value - lowPrice.value
+  if (range === 0) return { bottom: '50%' }
+  
+  const bottom = ((price - lowPrice.value) / range) * 100
+  
+  return {
     bottom: `${bottom}%`
   }
 }
@@ -376,15 +409,51 @@ function getCandleStyle(candle: Candle) {
   border-radius: 3px;
 }
 
-.candles-display {
+.chart-area {
   flex: 1;
+  position: relative;
+  height: 300px;
+}
+
+.sr-lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.sr-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px solid;
+}
+
+.resistance-line {
+  border-color: rgba(239, 83, 80, 0.6);
+}
+
+.support-line {
+  border-color: rgba(38, 166, 154, 0.6);
+}
+
+.candles-display {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  height: 300px;
   padding: 10px 0;
   background: linear-gradient(to top, #1a1a1a 0%, #1a1a1a 25%, transparent 25%, transparent 50%, #1a1a1a 50%, #1a1a1a 75%, transparent 75%);
   background-size: 100% 25%;
+  z-index: 5; /* Above SR lines */
 }
 
 .x-axis {
