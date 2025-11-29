@@ -9,22 +9,17 @@
         </h1>
         
         <div class="controls">
-          <el-select v-model="store.interval" @change="handleRefresh" size="large">
-            <el-option label="15分钟" value="15m" />
-            <el-option label="1小时" value="1h" />
-            <el-option label="4小时" value="4h" />
-            <el-option label="1天" value="1d" />
-          </el-select>
-          
-          <el-button
-            type="primary"
-            :loading="store.loading"
-            @click="handleRefresh"
-            size="large"
-          >
-            <el-icon><Refresh /></el-icon>
-            刷新数据
-          </el-button>
+          <div class="interval-buttons">
+            <button 
+              v-for="option in intervalOptions" 
+              :key="option.value"
+              class="interval-btn"
+              :class="{ active: store.interval === option.value }"
+              @click="changeInterval(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -96,8 +91,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import { Refresh, Loading } from '@element-plus/icons-vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useAnalysisStore } from '../stores/analysis'
 import SimpleChart from '../components/SimpleChart.vue'
 import TrendPanel from '../components/TrendPanel.vue'
@@ -107,10 +101,35 @@ import PatternPanel from '../components/PatternPanel.vue'
 import MarketStructurePanel from '../components/MarketStructurePanel.vue'
 
 const store = useAnalysisStore()
+let refreshTimer: number | null = null
+
+const intervalOptions = [
+  { label: '15分钟', value: '15m' },
+  { label: '1小时', value: '1h' },
+  { label: '4小时', value: '4h' },
+  { label: '1天', value: '1d' }
+]
 
 onMounted(() => {
   handleRefresh()
+  
+  // Auto-refresh every second
+  refreshTimer = window.setInterval(() => {
+    handleRefresh()
+  }, 1000)
 })
+
+onUnmounted(() => {
+  // Clear timer on component unmount
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+  }
+})
+
+function changeInterval(interval: string) {
+  store.setInterval(interval)
+  handleRefresh()
+}
 
 async function handleRefresh() {
   await store.fetchAnalysis()
@@ -168,6 +187,61 @@ function formatTime(date: Date): string {
   display: flex;
   gap: 12px;
   align-items: center;
+}
+
+.interval-buttons {
+  display: flex;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.interval-btn {
+  padding: 8px 20px;
+  border: none;
+  background: transparent;
+  color: #999;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.interval-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: -1;
+}
+
+.interval-btn:hover {
+  color: #fff;
+  transform: translateY(-2px);
+}
+
+.interval-btn:hover::before {
+  opacity: 0.3;
+}
+
+.interval-btn.active {
+  color: #fff;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+}
+
+.interval-btn.active::before {
+  opacity: 1;
 }
 
 .last-update {
