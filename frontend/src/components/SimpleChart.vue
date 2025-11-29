@@ -73,6 +73,10 @@
           <!-- Candles Display -->
           <div class="candles-display">
             <div v-for="(candle, index) in displayCandles" :key="index" class="candle-bar">
+              <!-- Upper wick (from body top to high) -->
+              <div class="wick upper-wick" :style="getUpperWickStyle(candle)"></div>
+
+              <!-- Candle body (from open to close) -->
               <div class="bar" :class="candle.close >= candle.open ? 'bullish' : 'bearish'"
                 :style="getCandleStyle(candle)">
                 <div class="tooltip">
@@ -83,6 +87,9 @@
                   <div>收: ${{ candle.close.toFixed(2) }}</div>
                 </div>
               </div>
+
+              <!-- Lower wick (from body bottom to low) -->
+              <div class="wick lower-wick" :style="getLowerWickStyle(candle)"></div>
             </div>
           </div>
         </div>
@@ -234,14 +241,46 @@ function formatTime(timestamp: number): string {
 
 function getCandleStyle(candle: Candle) {
   const range = highPrice.value - lowPrice.value
-  if (range === 0) return { height: '50%' }
+  if (range === 0) return { height: '50%', bottom: '50%' }
 
+  // Body height is the difference between open and close
   const bodyHeight = Math.abs(candle.close - candle.open) / range * 100
-  const bottom = (candle.low - lowPrice.value) / range * 100
+  // Body bottom is positioned at the lower of open/close
+  const bodyBottom = (Math.min(candle.open, candle.close) - lowPrice.value) / range * 100
 
   return {
-    height: `${Math.max(bodyHeight, 2)}%`,
-    bottom: `${bottom}%`
+    height: `${Math.max(bodyHeight, 1)}%`,
+    bottom: `${bodyBottom}%`
+  }
+}
+
+function getUpperWickStyle(candle: Candle) {
+  const range = highPrice.value - lowPrice.value
+  if (range === 0) return { height: '0%', bottom: '50%' }
+
+  // Upper wick goes from top of body to high
+  const bodyTop = Math.max(candle.open, candle.close)
+  const wickHeight = (candle.high - bodyTop) / range * 100
+  const wickBottom = (bodyTop - lowPrice.value) / range * 100
+
+  return {
+    height: `${wickHeight}%`,
+    bottom: `${wickBottom}%`
+  }
+}
+
+function getLowerWickStyle(candle: Candle) {
+  const range = highPrice.value - lowPrice.value
+  if (range === 0) return { height: '0%', bottom: '50%' }
+
+  // Lower wick goes from low to bottom of body
+  const bodyBottom = Math.min(candle.open, candle.close)
+  const wickHeight = (bodyBottom - candle.low) / range * 100
+  const wickBottom = (candle.low - lowPrice.value) / range * 100
+
+  return {
+    height: `${wickHeight}%`,
+    bottom: `${wickBottom}%`
   }
 }
 
@@ -532,6 +571,28 @@ function getSRLineStyle(price: number) {
   align-items: flex-end;
   z-index: 20;
   /* Create stacking context for tooltip to escape above SR lines */
+}
+
+.wick {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  pointer-events: none;
+}
+
+.upper-wick,
+.lower-wick {
+  background: #999;
+}
+
+/* Wick colors based on parent candle */
+.candle-bar:has(.bar.bullish) .wick {
+  background: #26a69a;
+}
+
+.candle-bar:has(.bar.bearish) .wick {
+  background: #ef5350;
 }
 
 .bar {
