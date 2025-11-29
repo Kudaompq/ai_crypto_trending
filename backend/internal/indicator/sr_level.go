@@ -7,24 +7,135 @@ import (
 	"github.com/kudaompq/ai_trending/backend/internal/model"
 )
 
-// CalculateSRLevels calculates support and resistance levels using clustering
+// TimeframeConfig holds configuration for different timeframes
+type TimeframeConfig struct {
+	ClusterThreshold float64 // Percentage threshold for price clustering
+	MinClusterSize   int     // Minimum points to form a cluster
+	LookbackPeriod   int     // How many candles to analyze
+	MinLevels        int     // Minimum SR levels to return
+}
+
+// getTimeframeConfig returns optimized config based on interval
+func getTimeframeConfig(interval string, totalCandles int) TimeframeConfig {
+	switch interval {
+	case "15m":
+		return TimeframeConfig{
+			ClusterThreshold: 0.003, // 0.3% for 15min (tighter)
+			MinClusterSize:   2,
+			LookbackPeriod:   min(96, totalCandles),  // ~24 hours
+			MinLevels:        2,
+		}
+	case "1h":
+		return TimeframeConfig{
+			ClusterThreshold: 0.005, // 0.5% for 1h
+			MinClusterSize:   2,
+			LookbackPeriod:   min(168, totalCandles), // ~1 week
+			MinLevels:        2,
+		}
+	case "4h":
+		return TimeframeConfig{
+			ClusterThreshold: 0.01, // 1% for 4h
+			MinClusterSize:   2,
+			LookbackPeriod:   min(84, totalCandles), // ~2 weeks
+			MinLevels:        2,
+		}
+	case "1d":
+		return TimeframeConfig{
+			ClusterThreshold: 0.02, // 2% for daily
+			MinClusterSize:   2,
+			LookbackPeriod:   min(60, totalCandles), // ~2 months
+			MinLevels:        1,
+		}
+	default:
+		return TimeframeConfig{
+			ClusterThreshold: 0.015,
+			MinClusterSize:   2,
+			LookbackPeriod:   min(100, totalCandles),
+			MinLevels:        2,
+		}
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// PricePoint represents a single price point with volume
+type PricePoint struct {
+	Price  float64
+	Volume float64
+	IsHigh bool
+}
+
+// PriceCluster represents a cluster of prices
+type PriceCluster struct {
+	Price    float64
+	Strength float64
+	Count    int
+	Volume   float64
+}
+
+// CalculateSRLevels calculates support and resistance levels with timeframe awareness
 func CalculateSRLevels(candles []model.Candle, lookback int) model.SRLevels {
-	if len(candles) < lookback {
-		lookback = len(candles)
+	return CalculateSRLevelsWithInterval(candles, lookback, "1d")
+}
+
+// CalculateSRLevelsWithInterval calculates SR levels with interval-specific parameters
+func CalculateSRLevelsWithInterval(candles []model.Candle, lookback int, interval string) model.SRLevels {
+	if len(candles) < 10 {
+		return model.SRLevels{
+			Resistance: []model.SRLevel{},
+			Support:    []model.SRLevel{},
+		}
 	}
 
-	// Collect high and low prices
-	prices := make([]float64, 0)
-	for i := len(candles) - lookback; i < len(candles); i++ {
-		prices = append(prices, candles[i].High)
-		prices = append(prices, candles[i].Low)
+	config := getTimeframeConfig(interval, len(candles))
+	if lookback > 0 && lookback < config.LookbackPeriod {
+		config.LookbackPeriod = lookback
 	}
 
-	// Use simple clustering to find price levels
-	clusters := clusterPrices(prices, 5) // Find top 5 clusters
-
+	// Calculate ATR for dynamic threshold adjustment
+	atr := calculateATR(candles, 14)
 	currentPrice := candles[len(candles)-1].Close
 
+	// Collect price points with volume weighting
+	pricePoints := make([]PricePoint, 0)
+	startIdx := len(candles) - config.LookbackPeriod
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	for i := startIdx; i < len(candles); i++ {
+		pricePoints = append(pricePoints, PricePoint{
+			Price:  candles[i].High,
+			Volume: candles[i].Volume,
+			IsHigh: true,
+		})
+		pricePoints = append(pricePoints, PricePoint{
+			Price:  candles[i].Low,
+			Volume: candles[i].Volume,
+			IsHigh: false,
+		})
+	}
+
+	// Sort by price
+	sort.Slice(pricePoints, func(i, j int) bool {
+		return pricePoints[i].Price < pricePoints[j].Price
+	})
+
+	// Dynamic threshold based on ATR and config
+	dynamicThreshold := math.Max(
+		currentPrice*config.ClusterThreshold,
+		atr*0.5, // At least half ATR
+	)
+
+	// Cluster prices
+	clusters := clusterPricesAdvanced(pricePoints, dynamicThreshold, config.MinClusterSize)
+
+	// Separate into support and resistance
 	resistance := make([]model.SRLevel, 0)
 	support := make([]model.SRLevel, 0)
 
@@ -34,22 +145,31 @@ func CalculateSRLevels(candles []model.Candle, lookback int) model.SRLevels {
 			Strength: cluster.Strength,
 		}
 
-		if cluster.Price > currentPrice {
+		// Add buffer zone around current price
+		bufferZone := currentPrice * 0.002 // 0.2% buffer
+
+		if cluster.Price > currentPrice+bufferZone {
 			resistance = append(resistance, level)
-		} else {
+		} else if cluster.Price < currentPrice-bufferZone {
 			support = append(support, level)
 		}
 	}
 
-	// Sort by price
+	// Sort by price instead of strength
+	// Resistance: low to high (nearest resistance first)
 	sort.Slice(resistance, func(i, j int) bool {
 		return resistance[i].Price < resistance[j].Price
 	})
+	// Support: high to low (nearest support first)
 	sort.Slice(support, func(i, j int) bool {
 		return support[i].Price > support[j].Price
 	})
 
-	// Keep top 3-5 levels
+	// Ensure minimum levels - add recent highs/lows if needed
+	resistance = ensureMinimumLevels(resistance, candles, currentPrice, true, config.MinLevels, config.LookbackPeriod)
+	support = ensureMinimumLevels(support, candles, currentPrice, false, config.MinLevels, config.LookbackPeriod)
+
+	// Limit to top 5
 	if len(resistance) > 5 {
 		resistance = resistance[:5]
 	}
@@ -63,66 +183,161 @@ func CalculateSRLevels(candles []model.Candle, lookback int) model.SRLevels {
 	}
 }
 
-// PriceCluster represents a cluster of prices
-type PriceCluster struct {
-	Price    float64
-	Strength float64
-	Count    int
-}
-
-// clusterPrices uses a simple density-based clustering algorithm
-func clusterPrices(prices []float64, maxClusters int) []PriceCluster {
-	if len(prices) == 0 {
+// clusterPricesAdvanced uses volume-weighted clustering
+func clusterPricesAdvanced(points []PricePoint, threshold float64, minSize int) []PriceCluster {
+	if len(points) == 0 {
 		return []PriceCluster{}
 	}
 
-	sort.Float64s(prices)
-
-	// Calculate price range and threshold
-	minPrice := prices[0]
-	maxPrice := prices[len(prices)-1]
-	threshold := (maxPrice - minPrice) * 0.02 // 2% threshold
-
 	clusters := make([]PriceCluster, 0)
-	currentCluster := []float64{prices[0]}
+	i := 0
 
-	for i := 1; i < len(prices); i++ {
-		if prices[i]-prices[i-1] <= threshold {
-			currentCluster = append(currentCluster, prices[i])
-		} else {
-			// Finalize current cluster
-			if len(currentCluster) >= 2 {
-				avgPrice := average(currentCluster)
-				clusters = append(clusters, PriceCluster{
-					Price:    avgPrice,
-					Count:    len(currentCluster),
-					Strength: float64(len(currentCluster)) / float64(len(prices)),
-				})
-			}
-			currentCluster = []float64{prices[i]}
+	for i < len(points) {
+		clusterPrices := []float64{points[i].Price}
+		totalVolume := points[i].Volume
+		j := i + 1
+
+		// Group nearby prices
+		for j < len(points) && points[j].Price-points[i].Price <= threshold {
+			clusterPrices = append(clusterPrices, points[j].Price)
+			totalVolume += points[j].Volume
+			j++
 		}
-	}
 
-	// Add last cluster
-	if len(currentCluster) >= 2 {
-		avgPrice := average(currentCluster)
-		clusters = append(clusters, PriceCluster{
-			Price:    avgPrice,
-			Count:    len(currentCluster),
-			Strength: float64(len(currentCluster)) / float64(len(prices)),
-		})
-	}
+		// Only create cluster if meets minimum size
+		if len(clusterPrices) >= minSize {
+			avgPrice := average(clusterPrices)
+			
+			// Calculate strength based on count and volume
+			countStrength := float64(len(clusterPrices)) / float64(len(points))
+			volumeStrength := math.Min(1.0, totalVolume/100000) // Normalize volume
+			
+			clusters = append(clusters, PriceCluster{
+				Price:    avgPrice,
+				Count:    len(clusterPrices),
+				Volume:   totalVolume,
+				Strength: (countStrength*0.6 + volumeStrength*0.4), // Weighted combination
+			})
+		}
 
-	// Sort by strength and return top clusters
-	sort.Slice(clusters, func(i, j int) bool {
-		return clusters[i].Strength > clusters[j].Strength
-	})
-
-	if len(clusters) > maxClusters {
-		clusters = clusters[:maxClusters]
+		i = j
 	}
 
 	return clusters
+}
+
+// ensureMinimumLevels adds recent swing highs/lows if not enough levels found
+func ensureMinimumLevels(levels []model.SRLevel, candles []model.Candle, currentPrice float64, isResistance bool, minLevels int, lookback int) []model.SRLevel {
+	if len(levels) >= minLevels {
+		return levels
+	}
+
+	// Find swing points
+	swingPoints := findSwingPoints(candles, lookback, isResistance)
+	
+	// Filter by direction
+	for _, swing := range swingPoints {
+		if isResistance && swing.Price > currentPrice {
+			// Check if not already in levels
+			exists := false
+			for _, level := range levels {
+				if math.Abs(level.Price-swing.Price)/swing.Price < 0.005 {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				levels = append(levels, swing)
+				if len(levels) >= minLevels {
+					break
+				}
+			}
+		} else if !isResistance && swing.Price < currentPrice {
+			exists := false
+			for _, level := range levels {
+				if math.Abs(level.Price-swing.Price)/swing.Price < 0.005 {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				levels = append(levels, swing)
+				if len(levels) >= minLevels {
+					break
+				}
+			}
+		}
+	}
+
+	return levels
+}
+
+// findSwingPoints identifies local highs and lows
+func findSwingPoints(candles []model.Candle, lookback int, findHighs bool) []model.SRLevel {
+	swings := make([]model.SRLevel, 0)
+	
+	startIdx := len(candles) - lookback
+	if startIdx < 2 {
+		startIdx = 2
+	}
+
+	for i := startIdx; i < len(candles)-2; i++ {
+		if findHighs {
+			// Check if local high
+			if candles[i].High > candles[i-1].High && 
+			   candles[i].High > candles[i-2].High &&
+			   candles[i].High > candles[i+1].High &&
+			   candles[i].High > candles[i+2].High {
+				swings = append(swings, model.SRLevel{
+					Price:    candles[i].High,
+					Strength: 0.3, // Lower strength for swing points
+				})
+			}
+		} else {
+			// Check if local low
+			if candles[i].Low < candles[i-1].Low && 
+			   candles[i].Low < candles[i-2].Low &&
+			   candles[i].Low < candles[i+1].Low &&
+			   candles[i].Low < candles[i+2].Low {
+				swings = append(swings, model.SRLevel{
+					Price:    candles[i].Low,
+					Strength: 0.3,
+				})
+			}
+		}
+	}
+
+	// Sort by strength
+	sort.Slice(swings, func(i, j int) bool {
+		return swings[i].Strength > swings[j].Strength
+	})
+
+	return swings
+}
+
+// calculateATR calculates Average True Range
+func calculateATR(candles []model.Candle, period int) float64 {
+	if len(candles) < period+1 {
+		return 0
+	}
+
+	trs := make([]float64, 0)
+	for i := len(candles) - period; i < len(candles); i++ {
+		if i == 0 {
+			continue
+		}
+		
+		tr := math.Max(
+			candles[i].High-candles[i].Low,
+			math.Max(
+				math.Abs(candles[i].High-candles[i-1].Close),
+				math.Abs(candles[i].Low-candles[i-1].Close),
+			),
+		)
+		trs = append(trs, tr)
+	}
+
+	return average(trs)
 }
 
 // average calculates the average of a slice of floats
@@ -137,100 +352,7 @@ func average(values []float64) float64 {
 	return sum / float64(len(values))
 }
 
-// CalculateSRLevelsAdvanced uses volume-weighted clustering
+// CalculateSRLevelsAdvanced is deprecated, use CalculateSRLevelsWithInterval instead
 func CalculateSRLevelsAdvanced(candles []model.Candle, lookback int) model.SRLevels {
-	if len(candles) < lookback {
-		lookback = len(candles)
-	}
-
-	type WeightedPrice struct {
-		Price  float64
-		Volume float64
-	}
-
-	weightedPrices := make([]WeightedPrice, 0)
-	
-	for i := len(candles) - lookback; i < len(candles); i++ {
-		weightedPrices = append(weightedPrices, WeightedPrice{
-			Price:  candles[i].High,
-			Volume: candles[i].Volume,
-		})
-		weightedPrices = append(weightedPrices, WeightedPrice{
-			Price:  candles[i].Low,
-			Volume: candles[i].Volume,
-		})
-	}
-
-	// Sort by price
-	sort.Slice(weightedPrices, func(i, j int) bool {
-		return weightedPrices[i].Price < weightedPrices[j].Price
-	})
-
-	// Find clusters with volume weighting
-	currentPrice := candles[len(candles)-1].Close
-	priceRange := candles[len(candles)-1].High - candles[len(candles)-1].Low
-	threshold := priceRange * 0.5
-
-	clusters := make([]PriceCluster, 0)
-	i := 0
-
-	for i < len(weightedPrices) {
-		clusterPrices := []float64{weightedPrices[i].Price}
-		totalVolume := weightedPrices[i].Volume
-		j := i + 1
-
-		for j < len(weightedPrices) && math.Abs(weightedPrices[j].Price-weightedPrices[i].Price) <= threshold {
-			clusterPrices = append(clusterPrices, weightedPrices[j].Price)
-			totalVolume += weightedPrices[j].Volume
-			j++
-		}
-
-		if len(clusterPrices) >= 2 {
-			avgPrice := average(clusterPrices)
-			clusters = append(clusters, PriceCluster{
-				Price:    avgPrice,
-				Count:    len(clusterPrices),
-				Strength: math.Min(1.0, totalVolume/10000), // Normalize
-			})
-		}
-
-		i = j
-	}
-
-	// Separate into support and resistance
-	resistance := make([]model.SRLevel, 0)
-	support := make([]model.SRLevel, 0)
-
-	for _, cluster := range clusters {
-		level := model.SRLevel{
-			Price:    cluster.Price,
-			Strength: cluster.Strength,
-		}
-
-		if cluster.Price > currentPrice*1.001 { // 0.1% above current
-			resistance = append(resistance, level)
-		} else if cluster.Price < currentPrice*0.999 { // 0.1% below current
-			support = append(support, level)
-		}
-	}
-
-	// Sort and limit
-	sort.Slice(resistance, func(i, j int) bool {
-		return resistance[i].Strength > resistance[j].Strength
-	})
-	sort.Slice(support, func(i, j int) bool {
-		return support[i].Strength > support[j].Strength
-	})
-
-	if len(resistance) > 5 {
-		resistance = resistance[:5]
-	}
-	if len(support) > 5 {
-		support = support[:5]
-	}
-
-	return model.SRLevels{
-		Resistance: resistance,
-		Support:    support,
-	}
+	return CalculateSRLevelsWithInterval(candles, lookback, "1d")
 }

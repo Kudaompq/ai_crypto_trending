@@ -9,16 +9,18 @@
       </div>
     </div>
     
-    <div class="price-levels" v-if="resistance || support">
+    <div class="price-levels">
       <div class="levels-row">
         <div class="level-group resistance-group">
           <span class="level-title">压力位:</span>
+          <span v-if="topResistance.length === 0" class="no-data">暂无</span>
           <span v-for="(level, i) in topResistance" :key="'r-'+i" class="level-badge resistance">
             ${{ level.price.toFixed(2) }}
           </span>
         </div>
         <div class="level-group support-group">
           <span class="level-title">支撑位:</span>
+          <span v-if="topSupport.length === 0" class="no-data">暂无</span>
           <span v-for="(level, i) in topSupport" :key="'s-'+i" class="level-badge support">
             ${{ level.price.toFixed(2) }}
           </span>
@@ -42,20 +44,38 @@
         </div>
       </div>
       
-      <div class="candles-display">
-        <div v-for="(candle, index) in displayCandles" :key="index" class="candle-bar">
-          <div 
-            class="bar" 
-            :class="candle.close >= candle.open ? 'bullish' : 'bearish'"
-            :style="getCandleStyle(candle)"
-          >
-            <div class="tooltip">
-              <div>开: ${{ candle.open.toFixed(2) }}</div>
-              <div>高: ${{ candle.high.toFixed(2) }}</div>
-              <div>低: ${{ candle.low.toFixed(2) }}</div>
-              <div>收: ${{ candle.close.toFixed(2) }}</div>
+      <div class="chart-container">
+        <!-- Y-axis (Price) -->
+        <div class="y-axis">
+          <div class="y-label" v-for="(price, i) in yAxisLabels" :key="'y-'+i" :style="{ bottom: `${(i / (yAxisLabels.length - 1)) * 100}%` }">
+            ${{ price.toFixed(0) }}
+          </div>
+        </div>
+
+        <!-- Candles Display -->
+        <div class="candles-display">
+          <div v-for="(candle, index) in displayCandles" :key="index" class="candle-bar">
+            <div 
+              class="bar" 
+              :class="candle.close >= candle.open ? 'bullish' : 'bearish'"
+              :style="getCandleStyle(candle)"
+            >
+              <div class="tooltip">
+                <div>时间: {{ formatTime(candle.timestamp) }}</div>
+                <div>开: ${{ candle.open.toFixed(2) }}</div>
+                <div>高: ${{ candle.high.toFixed(2) }}</div>
+                <div>低: ${{ candle.low.toFixed(2) }}</div>
+                <div>收: ${{ candle.close.toFixed(2) }}</div>
+              </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- X-axis (Time) -->
+      <div class="x-axis">
+        <div class="x-label" v-for="(label, i) in xAxisLabels" :key="'x-'+i">
+          {{ label }}
         </div>
       </div>
     </div>
@@ -120,6 +140,58 @@ const topResistance = computed(() => {
 const topSupport = computed(() => {
   return props.support?.slice(0, 3) || []
 })
+
+const yAxisLabels = computed(() => {
+  if (!displayCandles.value || displayCandles.value.length === 0) return []
+  const high = highPrice.value
+  const low = lowPrice.value
+  const step = (high - low) / 4
+  return [
+    low,
+    low + step,
+    low + step * 2,
+    low + step * 3,
+    high
+  ]
+})
+
+const xAxisLabels = computed(() => {
+  if (!displayCandles.value || displayCandles.value.length === 0) return []
+  const candles = displayCandles.value
+  const step = Math.floor(candles.length / 5)
+  const labels = []
+  
+  for (let i = 0; i < 6; i++) {
+    const index = Math.min(i * step, candles.length - 1)
+    labels.push(formatTime(candles[index].timestamp))
+  }
+  
+  return labels
+})
+
+function formatTime(timestamp: number): string {
+  const date = new Date(timestamp)
+  const month = (date.getMonth() + 1).toString().padStart(2, '0')
+  const day = date.getDate().toString().padStart(2, '0')
+  const hour = date.getHours().toString().padStart(2, '0')
+  const minute = date.getMinutes().toString().padStart(2, '0')
+  
+  // Show date + time for intraday, just date for daily
+  if (props.candles && props.candles.length > 0) {
+    const timeDiff = props.candles[props.candles.length - 1].timestamp - props.candles[0].timestamp
+    const hoursDiff = timeDiff / (1000 * 60 * 60)
+    
+    if (hoursDiff < 48) {
+      // Intraday - show time
+      return `${hour}:${minute}`
+    } else if (hoursDiff < 720) {
+      // Less than 30 days - show month/day
+      return `${month}/${day}`
+    }
+  }
+  
+  return `${month}/${day}`
+}
 
 function getCandleStyle(candle: Candle) {
   const range = highPrice.value - lowPrice.value
@@ -240,6 +312,12 @@ function getCandleStyle(candle: Candle) {
   border: 1px solid rgba(38, 166, 154, 0.4);
 }
 
+.no-data {
+  color: #666;
+  font-size: 13px;
+  font-style: italic;
+}
+
 .simple-chart {
   background: #1a1a1a;
   border-radius: 8px;
@@ -271,12 +349,55 @@ function getCandleStyle(candle: Candle) {
   font-weight: 600;
 }
 
+.chart-container {
+  position: relative;
+  display: flex;
+  gap: 10px;
+}
+
+.y-axis {
+  position: relative;
+  width: 60px;
+  height: 300px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.y-label {
+  position: absolute;
+  right: 5px;
+  transform: translateY(50%);
+  font-size: 11px;
+  color: #999;
+  font-weight: 500;
+  background: #1a1a1a;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
 .candles-display {
+  flex: 1;
   display: flex;
   align-items: flex-end;
   gap: 2px;
   height: 300px;
   padding: 10px 0;
+  background: linear-gradient(to top, #1a1a1a 0%, #1a1a1a 25%, transparent 25%, transparent 50%, #1a1a1a 50%, #1a1a1a 75%, transparent 75%);
+  background-size: 100% 25%;
+}
+
+.x-axis {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 60px 0 70px;
+  margin-top: 5px;
+}
+
+.x-label {
+  font-size: 11px;
+  color: #999;
+  font-weight: 500;
 }
 
 .candle-bar {

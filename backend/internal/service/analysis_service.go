@@ -1,6 +1,8 @@
 package service
 
 import (
+	"fmt"
+	
 	"github.com/kudaompq/ai_trending/backend/internal/indicator"
 	"github.com/kudaompq/ai_trending/backend/internal/model"
 	"github.com/kudaompq/ai_trending/backend/internal/repository"
@@ -8,16 +10,16 @@ import (
 
 // AnalysisService orchestrates the complete analysis
 type AnalysisService struct {
-	binanceRepo           *repository.BinanceRepository
-	trendService          *TrendService
+	binanceRepo            *repository.BinanceRepository
+	trendService           *TrendService
 	marketStructureService *MarketStructureService
 }
 
 // NewAnalysisService creates a new analysis service
 func NewAnalysisService() *AnalysisService {
 	return &AnalysisService{
-		binanceRepo:           repository.NewBinanceRepository(),
-		trendService:          NewTrendService(),
+		binanceRepo:            repository.NewBinanceRepository(),
+		trendService:           NewTrendService(),
 		marketStructureService: NewMarketStructureService(),
 	}
 }
@@ -30,8 +32,8 @@ func (s *AnalysisService) PerformAnalysis(symbol, interval string, limit int) (*
 		return nil, err
 	}
 
-	if len(candles) == 0 {
-		return nil, err
+	if len(candles) < 20 {
+		return nil, fmt.Errorf("insufficient data: need at least 20 candles")
 	}
 
 	// Calculate indicators
@@ -39,36 +41,27 @@ func (s *AnalysisService) PerformAnalysis(symbol, interval string, limit int) (*
 	kdj := indicator.CalculateKDJWithHistory(candles)
 	rsi := indicator.CalculateRSI(candles)
 
-	indicators := model.Indicators{
-		MACD: macd,
-		KDJ:  kdj,
-		RSI:  rsi,
-	}
-
 	// Analyze trend
 	trend := s.trendService.AnalyzeTrend(candles)
-	trendDirection := s.trendService.DetermineTrendDirection(candles)
 
-	// Calculate SR levels
-	srLevels := indicator.CalculateSRLevels(candles, 100)
+	// Calculate SR levels with interval awareness
+	srLevels := indicator.CalculateSRLevelsWithInterval(candles, limit, interval)
 
 	// Identify candlestick patterns
+	trendDirection := s.trendService.DetermineTrendDirection(candles)
 	patterns := indicator.IdentifyPatterns(candles, trendDirection)
 
 	// Analyze market structure
 	marketStructure := s.marketStructureService.AnalyzeStructure(candles, trendDirection)
 
-	// Build result
-	result := &model.AnalysisResult{
+	return &model.AnalysisResult{
 		Symbol:              symbol,
 		Interval:            interval,
 		Timestamp:           candles[len(candles)-1].Timestamp,
 		Trend:               trend,
-		Indicators:          indicators,
+		Indicators:          model.Indicators{MACD: macd, KDJ: kdj, RSI: rsi},
 		SRLevels:            srLevels,
 		CandlestickPatterns: patterns,
 		MarketStructure:     marketStructure,
-	}
-
-	return result, nil
+	}, nil
 }
