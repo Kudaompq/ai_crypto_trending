@@ -8,20 +8,20 @@
         <span class="change" :class="changeClass">{{ priceChange >= 0 ? '+' : '' }}{{ priceChange.toFixed(2) }}%</span>
       </div>
     </div>
-    
+
     <div class="price-levels">
       <div class="levels-row">
         <div class="level-group resistance-group">
           <span class="level-title">压力位:</span>
           <span v-if="topResistance.length === 0" class="no-data">暂无</span>
-          <span v-for="(level, i) in topResistance" :key="'r-'+i" class="level-badge resistance">
+          <span v-for="(level, i) in topResistance" :key="'r-' + i" class="level-badge resistance">
             ${{ level.price.toFixed(2) }}
           </span>
         </div>
         <div class="level-group support-group">
           <span class="level-title">支撑位:</span>
           <span v-if="topSupport.length === 0" class="no-data">暂无</span>
-          <span v-for="(level, i) in topSupport" :key="'s-'+i" class="level-badge support">
+          <span v-for="(level, i) in topSupport" :key="'s-' + i" class="level-badge support">
             ${{ level.price.toFixed(2) }}
           </span>
         </div>
@@ -43,11 +43,12 @@
           <span class="value">{{ totalVolume.toFixed(0) }}</span>
         </div>
       </div>
-      
+
       <div class="chart-container">
         <!-- Y-axis (Price) -->
         <div class="y-axis">
-          <div class="y-label" v-for="(price, i) in yAxisLabels" :key="'y-'+i" :style="{ bottom: `${(i / (yAxisLabels.length - 1)) * 100}%` }">
+          <div class="y-label" v-for="(price, i) in yAxisLabels" :key="'y-' + i"
+            :style="{ bottom: `${(i / (yAxisLabels.length - 1)) * 100}%` }">
             ${{ price.toFixed(0) }}
           </div>
         </div>
@@ -57,30 +58,23 @@
           <!-- SR Level Lines (no labels) -->
           <div class="sr-lines">
             <!-- Resistance Lines -->
-            <div 
-              v-for="(level, i) in topResistance" 
-              :key="'r-line-'+i"
-              class="sr-line resistance-line"
-              :style="getSRLineStyle(level.price)"
-            ></div>
-            
+            <div v-for="(level, i) in topResistance" :key="'r-line-' + i" class="sr-line resistance-line"
+              :style="getSRLineStyle(level.price)">
+              <span class="sr-price-label">{{ level.price.toFixed(2) }}</span>
+            </div>
+
             <!-- Support Lines -->
-            <div 
-              v-for="(level, i) in topSupport" 
-              :key="'s-line-'+i"
-              class="sr-line support-line"
-              :style="getSRLineStyle(level.price)"
-            ></div>
+            <div v-for="(level, i) in topSupport" :key="'s-line-' + i" class="sr-line support-line"
+              :style="getSRLineStyle(level.price)">
+              <span class="sr-price-label">{{ level.price.toFixed(2) }}</span>
+            </div>
           </div>
 
           <!-- Candles Display -->
           <div class="candles-display">
             <div v-for="(candle, index) in displayCandles" :key="index" class="candle-bar">
-              <div 
-                class="bar" 
-                :class="candle.close >= candle.open ? 'bullish' : 'bearish'"
-                :style="getCandleStyle(candle)"
-              >
+              <div class="bar" :class="candle.close >= candle.open ? 'bullish' : 'bearish'"
+                :style="getCandleStyle(candle)">
                 <div class="tooltip">
                   <div>时间: {{ formatTime(candle.timestamp) }}</div>
                   <div>开: ${{ candle.open.toFixed(2) }}</div>
@@ -96,7 +90,7 @@
 
       <!-- X-axis (Time) -->
       <div class="x-axis">
-        <div class="x-label" v-for="(label, i) in xAxisLabels" :key="'x-'+i">
+        <div class="x-label" v-for="(label, i) in xAxisLabels" :key="'x-' + i">
           {{ label }}
         </div>
       </div>
@@ -156,11 +150,27 @@ const totalVolume = computed(() => {
 })
 
 const topResistance = computed(() => {
-  return props.resistance?.slice(0, 5) || []
+  if (!props.resistance || props.resistance.length === 0) return []
+
+  // Filter resistance levels that are within the displayed candles' price range
+  const high = highPrice.value
+  const low = lowPrice.value
+
+  return props.resistance
+    .filter(level => level.price >= low && level.price <= high)
+    .slice(0, 5)
 })
 
 const topSupport = computed(() => {
-  return props.support?.slice(0, 5) || []
+  if (!props.support || props.support.length === 0) return []
+
+  // Filter support levels that are within the displayed candles' price range
+  const high = highPrice.value
+  const low = lowPrice.value
+
+  return props.support
+    .filter(level => level.price >= low && level.price <= high)
+    .slice(0, 5)
 })
 
 const yAxisLabels = computed(() => {
@@ -182,12 +192,12 @@ const xAxisLabels = computed(() => {
   const candles = displayCandles.value
   const step = Math.floor(candles.length / 5)
   const labels = []
-  
+
   for (let i = 0; i < 6; i++) {
     const index = Math.min(i * step, candles.length - 1)
     labels.push(formatTime(candles[index].timestamp))
   }
-  
+
   return labels
 })
 
@@ -197,12 +207,12 @@ function formatTime(timestamp: number): string {
   const day = date.getDate().toString().padStart(2, '0')
   const hour = date.getHours().toString().padStart(2, '0')
   const minute = date.getMinutes().toString().padStart(2, '0')
-  
+
   // Show date + time for intraday, just date for daily
   if (props.candles && props.candles.length > 0) {
     const timeDiff = props.candles[props.candles.length - 1].timestamp - props.candles[0].timestamp
     const hoursDiff = timeDiff / (1000 * 60 * 60)
-    
+
     if (hoursDiff < 48) {
       // Intraday - show time
       return `${hour}:${minute}`
@@ -211,17 +221,17 @@ function formatTime(timestamp: number): string {
       return `${month}/${day}`
     }
   }
-  
+
   return `${month}/${day}`
 }
 
 function getCandleStyle(candle: Candle) {
   const range = highPrice.value - lowPrice.value
   if (range === 0) return { height: '50%' }
-  
+
   const bodyHeight = Math.abs(candle.close - candle.open) / range * 100
   const bottom = (candle.low - lowPrice.value) / range * 100
-  
+
   return {
     height: `${Math.max(bodyHeight, 2)}%`,
     bottom: `${bottom}%`
@@ -231,9 +241,9 @@ function getCandleStyle(candle: Candle) {
 function getSRLineStyle(price: number) {
   const range = highPrice.value - lowPrice.value
   if (range === 0) return { bottom: '50%' }
-  
+
   const bottom = ((price - lowPrice.value) / range) * 100
-  
+
   return {
     bottom: `${bottom}%`
   }
@@ -413,6 +423,10 @@ function getSRLineStyle(price: number) {
   flex: 1;
   position: relative;
   height: 300px;
+  overflow: visible;
+  /* Allow labels to overflow */
+  padding-right: 60px;
+  /* Space for labels */
 }
 
 .sr-lines {
@@ -420,17 +434,27 @@ function getSRLineStyle(price: number) {
   top: 0;
   left: 0;
   right: 0;
+  /* Cover full candles area */
   bottom: 0;
   pointer-events: none;
-  z-index: 1;
+  z-index: 15;
+  /* Above candles, below tooltips */
+  overflow: visible;
+  /* Allow labels to show outside */
 }
 
 .sr-line {
   position: absolute;
   left: 0;
   right: 0;
+  /* Full width */
   height: 0;
   border-top: 1px solid;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 10px;
+  /* Space before label */
 }
 
 .resistance-line {
@@ -439,6 +463,29 @@ function getSRLineStyle(price: number) {
 
 .support-line {
   border-color: rgba(38, 166, 154, 0.6);
+}
+
+.sr-price-label {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 0;
+  background: transparent;
+  color: #fff;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  pointer-events: none;
+  line-height: 1;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  position: relative;
+  z-index: 1;
+}
+
+.resistance-line .sr-price-label {
+  color: rgba(239, 83, 80, 1);
+}
+
+.support-line .sr-price-label {
+  color: rgba(38, 166, 154, 1);
 }
 
 .candles-display {
@@ -453,7 +500,8 @@ function getSRLineStyle(price: number) {
   padding: 10px 0;
   background: linear-gradient(to top, #1a1a1a 0%, #1a1a1a 25%, transparent 25%, transparent 50%, #1a1a1a 50%, #1a1a1a 75%, transparent 75%);
   background-size: 100% 25%;
-  z-index: 5; /* Above SR lines */
+  z-index: 10;
+  /* Above SR lines, allows tooltips to show on top */
 }
 
 .x-axis {
@@ -475,6 +523,8 @@ function getSRLineStyle(price: number) {
   height: 100%;
   display: flex;
   align-items: flex-end;
+  z-index: 20;
+  /* Create stacking context for tooltip to escape above SR lines */
 }
 
 .bar {
@@ -509,7 +559,8 @@ function getSRLineStyle(price: number) {
   border-radius: 6px;
   font-size: 12px;
   white-space: nowrap;
-  z-index: 10;
+  z-index: 100;
+  /* Highest layer to always show above everything */
   margin-bottom: 5px;
 }
 
