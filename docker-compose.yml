@@ -1,0 +1,50 @@
+services:
+  # Backend Service
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: crypto-backend
+    restart: unless-stopped
+    ports:
+      - "8888:8080"
+    volumes:
+      - backend-data:/app/data
+    environment:
+      - TZ=Asia/Shanghai
+      - GIN_MODE=release
+    networks:
+      - crypto-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend Service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: crypto-frontend
+    restart: unless-stopped
+    ports:
+      - "9999:80"
+    depends_on:
+      - backend
+    networks:
+      - crypto-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  crypto-network:
+    driver: bridge
+
+volumes:
+  backend-data:
+    driver: local
