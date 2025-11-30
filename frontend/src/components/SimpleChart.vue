@@ -124,8 +124,8 @@ const symbolLabel = computed(() => {
 
 const displayCandles = computed(() => {
   if (!props.candles || props.candles.length === 0) return []
-  // Show last 50 candles
-  return props.candles.slice(-50)
+  // Show last 100 candles
+  return props.candles.slice(-100)
 })
 
 const currentPrice = computed(() => {
