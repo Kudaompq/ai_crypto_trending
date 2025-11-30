@@ -62,11 +62,17 @@
       <div class="chart-section">
         <SimpleChart v-if="store.klineData" :candles="store.klineData.data"
           :resistance="store.analysisResult.sr_levels.resistance" :support="store.analysisResult.sr_levels.support"
-          :symbol="store.symbol" />
+          :symbol="store.symbol" :ema="store.analysisResult.indicators.ema"
+          :fibonacci="store.analysisResult.indicators.fibonacci" :atr="store.analysisResult.indicators.atr" />
       </div>
 
       <!-- Analysis Panels -->
       <div class="panels-grid">
+        <!-- Trading Opportunities (Full Width) -->
+        <div class="full-width-panel">
+          <TradingOpportunity :symbol="store.symbol" :interval="store.interval" />
+        </div>
+
         <!-- Trading Recommendation (Full Width) -->
         <div class="full-width-panel">
           <TradingRecommendation :analysis="store.analysisResult" />
@@ -96,6 +102,7 @@
 import { onMounted, onUnmounted } from 'vue'
 import { useAnalysisStore } from '../stores/analysis'
 import SimpleChart from '../components/SimpleChart.vue'
+import TradingOpportunity from '../components/TradingOpportunity.vue'
 import TrendPanel from '../components/TrendPanel.vue'
 import IndicatorPanel from '../components/IndicatorPanel.vue'
 import SRLevelPanel from '../components/SRLevelPanel.vue'

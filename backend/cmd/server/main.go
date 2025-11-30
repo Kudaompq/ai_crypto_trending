@@ -24,6 +24,7 @@ func main() {
 	// Initialize handlers
 	klineHandler := handler.NewKlineHandler()
 	analysisHandler := handler.NewAnalysisHandler()
+	opportunityHandler := handler.NewOpportunityHandler()
 
 	// API routes
 	api := r.Group("/api")
@@ -34,10 +35,13 @@ func main() {
 		// Analysis endpoint
 		api.GET("/analysis", analysisHandler.GetAnalysis)
 
+		// Opportunities endpoint
+		api.GET("/opportunities", opportunityHandler.GetOpportunities)
+
 		// Health check
 		api.GET("/health", func(c *gin.Context) {
 			c.JSON(200, gin.H{
-				"status": "ok",
+				"status":  "ok",
 				"message": "ETH Analysis API is running",
 			})
 		})
@@ -50,6 +54,7 @@ func main() {
 	log.Println("  GET /api/health")
 	log.Println("  GET /api/kline?symbol=ETHUSDT&interval=1d&limit=100")
 	log.Println("  GET /api/analysis?symbol=ETHUSDT&interval=1d&limit=100")
+	log.Println("  GET /api/opportunities?symbol=ETHUSDT&interval=1h&min_rr=3.0")
 
 	if err := r.Run(":8080"); err != nil {
 		log.Fatal("Failed to start server:", err)

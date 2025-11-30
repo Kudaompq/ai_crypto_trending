@@ -27,11 +27,37 @@ type RSIIndicator struct {
 	RSI14 float64 `json:"rsi14"`
 }
 
+// ATRIndicator represents ATR (Average True Range) indicator
+type ATRIndicator struct {
+	Value  float64 `json:"value"`  // Current ATR value
+	Period int     `json:"period"` // Period used (typically 14)
+}
+
+// EMAIndicator represents EMA values for multiple periods
+type EMAIndicator struct {
+	EMA9   float64 `json:"ema9"`   // 9-period EMA
+	EMA21  float64 `json:"ema21"`  // 21-period EMA
+	EMA50  float64 `json:"ema50"`  // 50-period EMA
+	EMA200 float64 `json:"ema200"` // 200-period EMA
+}
+
+// FibonacciLevels represents Fibonacci retracement and extension levels
+type FibonacciLevels struct {
+	High        float64            `json:"high"`        // Swing high
+	Low         float64            `json:"low"`         // Swing low
+	Retracement map[string]float64 `json:"retracement"` // Retracement levels
+	Extension   map[string]float64 `json:"extension"`   // Extension levels
+	Direction   string             `json:"direction"`   // "UPTREND" or "DOWNTREND"
+}
+
 // Indicators contains all technical indicators
 type Indicators struct {
-	MACD MACDIndicator `json:"macd"`
-	KDJ  KDJIndicator  `json:"kdj"`
-	RSI  RSIIndicator  `json:"rsi"`
+	MACD      MACDIndicator    `json:"macd"`
+	KDJ       KDJIndicator     `json:"kdj"`
+	RSI       RSIIndicator     `json:"rsi"`
+	ATR       ATRIndicator     `json:"atr"`
+	EMA       EMAIndicator     `json:"ema"`
+	Fibonacci *FibonacciLevels `json:"fibonacci,omitempty"`
 }
 
 // SRLevel represents a support or resistance level
@@ -48,30 +74,111 @@ type SRLevels struct {
 
 // CandlestickPattern represents an identified candlestick pattern
 type CandlestickPattern struct {
-	Pattern     string  `json:"pattern"`      // 形态名称
-	Type        string  `json:"type"`         // "反转" or "持续"
-	Direction   string  `json:"direction"`    // "看涨" or "看跌"
-	Position    int     `json:"position"`     // 相对当前K线的位置
-	Reliability float64 `json:"reliability"`  // 0-1, 可靠性
-	Description string  `json:"description"`  // 描述
+	Pattern     string  `json:"pattern"`     // 形态名称
+	Type        string  `json:"type"`        // "反转" or "持续"
+	Direction   string  `json:"direction"`   // "看涨" or "看跌"
+	Position    int     `json:"position"`    // 相对当前K线的位置
+	Reliability float64 `json:"reliability"` // 0-1, 可靠性
+	Description string  `json:"description"` // 描述
 }
 
 // MarketStructure represents market structure analysis
 type MarketStructure struct {
-	HigherHigh     bool   `json:"higher_high"`      // 是否创新高
-	HigherLow      bool   `json:"higher_low"`       // 是否创新低
-	StructureBreak bool   `json:"structure_break"`  // 结构是否被破坏
-	RiskLevel      string `json:"risk_level"`       // "低" / "中" / "高"
+	HigherHigh     bool   `json:"higher_high"`     // 是否创新高
+	HigherLow      bool   `json:"higher_low"`      // 是否创新低
+	StructureBreak bool   `json:"structure_break"` // 结构是否被破坏
+	RiskLevel      string `json:"risk_level"`      // "低" / "中" / "高"
+}
+
+// RiskReward represents risk-reward analysis for a trading opportunity
+type RiskReward struct {
+	Ratio        float64 `json:"ratio"`         // Risk-reward ratio (e.g., 3.0 for 3:1)
+	RiskAmount   float64 `json:"risk_amount"`   // Amount at risk
+	RewardAmount float64 `json:"reward_amount"` // Potential reward
+	RiskPct      float64 `json:"risk_pct"`      // Risk as percentage
+	RewardPct    float64 `json:"reward_pct"`    // Reward as percentage
 }
 
 // AnalysisResult represents the complete analysis result
 type AnalysisResult struct {
-	Symbol            string                `json:"symbol"`
-	Interval          string                `json:"interval"`
-	Timestamp         int64                 `json:"timestamp"`
-	Trend             TrendAnalysis         `json:"trend"`
-	Indicators        Indicators            `json:"indicators"`
-	SRLevels          SRLevels              `json:"sr_levels"`
+	Symbol              string               `json:"symbol"`
+	Interval            string               `json:"interval"`
+	Timestamp           int64                `json:"timestamp"`
+	Trend               TrendAnalysis        `json:"trend"`
+	Indicators          Indicators           `json:"indicators"`
+	SRLevels            SRLevels             `json:"sr_levels"`
 	CandlestickPatterns []CandlestickPattern `json:"candlestick_patterns"`
-	MarketStructure   MarketStructure       `json:"market_structure"`
+	MarketStructure     MarketStructure      `json:"market_structure"`
+}
+
+// EntryPoint represents the entry point for a trade
+type EntryPoint struct {
+	Price   float64  `json:"price"`
+	Reasons []string `json:"reasons"`
+}
+
+// StopLossInfo represents stop-loss information
+type StopLossInfo struct {
+	Price       float64 `json:"price"`
+	DistancePct float64 `json:"distance_pct"`
+	Method      string  `json:"method"` // "TECHNICAL_LEVEL", "ATR", "PERCENTAGE"
+}
+
+// TakeProfitLevel represents a take-profit target
+type TakeProfitLevel struct {
+	Level            int     `json:"level"`
+	Price            float64 `json:"price"`
+	DistancePct      float64 `json:"distance_pct"`
+	Target           string  `json:"target"`
+	PositionClosePct int     `json:"position_close_pct"`
+}
+
+// RiskRewardInfo represents risk-reward analysis
+type RiskRewardInfo struct {
+	Ratio        float64 `json:"ratio"`
+	RiskAmount   float64 `json:"risk_amount"`
+	RewardAmount float64 `json:"reward_amount"`
+	RiskPct      float64 `json:"risk_pct"`
+	RewardPct    float64 `json:"reward_pct"`
+}
+
+// ConfidenceInfo represents confidence scoring
+type ConfidenceInfo struct {
+	Score   int      `json:"score"`   // 0-100
+	Level   string   `json:"level"`   // "HIGH", "MEDIUM", "LOW"
+	Factors []string `json:"factors"` // Reasons for confidence level
+}
+
+// ValidityInfo represents opportunity validity
+type ValidityInfo struct {
+	ExpiresAt int64  `json:"expires_at"`
+	Status    string `json:"status"` // "ACTIVE", "EXPIRED"
+}
+
+// TradingOpportunity represents a trading opportunity
+type TradingOpportunity struct {
+	ID         string            `json:"id"`
+	Symbol     string            `json:"symbol"`
+	Type       string            `json:"type"`     // "LONG" or "SHORT"
+	Strategy   string            `json:"strategy"` // "SUPPORT_BOUNCE", "BREAKOUT_RETEST", "TREND_CONTINUATION"
+	Timestamp  int64             `json:"timestamp"`
+	Entry      EntryPoint        `json:"entry"`
+	StopLoss   StopLossInfo      `json:"stop_loss"`
+	TakeProfit []TakeProfitLevel `json:"take_profit"`
+	RiskReward RiskRewardInfo    `json:"risk_reward"`
+	Confidence ConfidenceInfo    `json:"confidence"`
+	Validity   ValidityInfo      `json:"validity"`
+}
+
+// OpportunitySummary represents a summary of opportunities
+type OpportunitySummary struct {
+	TotalCount          int     `json:"total_opportunities"`
+	AvgRiskReward       float64 `json:"avg_risk_reward"`
+	HighConfidenceCount int     `json:"high_confidence_count"`
+}
+
+// OpportunitiesResponse represents the API response for opportunities
+type OpportunitiesResponse struct {
+	Opportunities []TradingOpportunity `json:"opportunities"`
+	Summary       OpportunitySummary   `json:"summary"`
 }

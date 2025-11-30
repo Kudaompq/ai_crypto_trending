@@ -42,6 +42,10 @@
           <span class="label">成交量:</span>
           <span class="value">{{ totalVolume.toFixed(0) }}</span>
         </div>
+        <div class="info-item" v-if="atr">
+          <span class="label">ATR({{ atr.period }}):</span>
+          <span class="value atr-value">${{ atr.value.toFixed(2) }}</span>
+        </div>
       </div>
 
       <div class="chart-container">
@@ -69,6 +73,22 @@
               <span class="sr-price-label">{{ level.price.toFixed(2) }}</span>
             </div>
           </div>
+
+          <!-- EMA Lines - HIDDEN -->
+          <!-- <div class="ema-lines">
+            <div v-for="(ema, i) in emaLines" :key="'ema-' + i" class="ema-line"
+              :style="{ ...ema.style, borderColor: ema.color }">
+              <span class="ema-label" :style="{ color: ema.color }">{{ ema.label }}</span>
+            </div>
+          </div> -->
+
+          <!-- Fibonacci Lines - HIDDEN -->
+          <!-- <div class="fib-lines">
+            <div v-for="(fib, i) in fibLevels" :key="'fib-' + i" class="fib-line"
+              :style="{ ...fib.style, borderColor: fib.color }">
+              <span class="fib-label" :style="{ color: fib.color }">{{ fib.label }} ${{ fib.price.toFixed(2) }}</span>
+            </div>
+          </div> -->
 
           <!-- Candles Display -->
           <div class="candles-display">
@@ -107,13 +127,16 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Candle, SRLevel } from '../services/api'
+import type { Candle, SRLevel, EMAIndicator, FibonacciLevels, ATRIndicator } from '../services/api'
 
 const props = defineProps<{
   candles: Candle[]
   resistance?: SRLevel[]
   support?: SRLevel[]
   symbol?: string
+  ema?: EMAIndicator
+  fibonacci?: FibonacciLevels
+  atr?: ATRIndicator
 }>()
 
 const symbolLabel = computed(() => {
@@ -294,6 +317,67 @@ function getSRLineStyle(price: number) {
     bottom: `${bottom}%`
   }
 }
+
+// EMA line positions
+const emaLines = computed(() => {
+  if (!props.ema || !displayCandles.value || displayCandles.value.length === 0) return []
+
+  const lines = []
+  const emas = [
+    { value: props.ema.ema9, color: '#00D9FF', label: 'EMA9' },
+    { value: props.ema.ema21, color: '#FFD700', label: 'EMA21' },
+    { value: props.ema.ema50, color: '#FF6B6B', label: 'EMA50' },
+    { value: props.ema.ema200, color: '#9B59B6', label: 'EMA200' }
+  ]
+
+  for (const ema of emas) {
+    if (ema.value > 0) {
+      lines.push({
+        ...ema,
+        style: getSRLineStyle(ema.value)
+      })
+    }
+  }
+
+  return lines
+})
+
+// Fibonacci levels to display
+const fibLevels = computed(() => {
+  if (!props.fibonacci) return []
+
+  const levels = []
+
+  // Key retracement levels
+  const retracementKeys = ['38.2%', '50%', '61.8%']
+  for (const key of retracementKeys) {
+    const price = props.fibonacci.retracement[key]
+    if (price) {
+      levels.push({
+        price,
+        label: `Fib ${key}`,
+        color: '#4A90E2',
+        style: getSRLineStyle(price)
+      })
+    }
+  }
+
+  // Key extension levels
+  const extensionKeys = ['1.272', '1.618']
+  for (const key of extensionKeys) {
+    const price = props.fibonacci.extension[key]
+    if (price) {
+      levels.push({
+        price,
+        label: `Fib ${key}`,
+        color: '#F5A623',
+        style: getSRLineStyle(price)
+      })
+    }
+  }
+
+  return levels
+})
 </script>
 
 <style scoped>
@@ -638,5 +722,82 @@ function getSRLineStyle(price: number) {
 
 .tooltip div {
   margin: 2px 0;
+}
+
+/* ATR value styling */
+.atr-value {
+  color: #00D9FF !important;
+  font-weight: 700;
+}
+
+/* EMA Lines */
+.ema-lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 12;
+  overflow: visible;
+}
+
+.ema-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 2px solid;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 10px;
+}
+
+.ema-label {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 3px;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Fibonacci Lines */
+.fib-lines {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 11;
+  overflow: visible;
+}
+
+.fib-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dashed;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 10px;
+  opacity: 0.7;
+}
+
+.fib-label {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 3px;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  pointer-events: none;
 }
 </style>
