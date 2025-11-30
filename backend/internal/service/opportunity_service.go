@@ -6,14 +6,19 @@ import (
 	"time"
 
 	"github.com/kudaompq/ai_trending/backend/internal/model"
+	"github.com/kudaompq/ai_trending/backend/internal/repository"
 )
 
 // OpportunityService detects trading opportunities
-type OpportunityService struct{}
+type OpportunityService struct {
+	repository *repository.OpportunityRepository
+}
 
 // NewOpportunityService creates a new opportunity service
 func NewOpportunityService() *OpportunityService {
-	return &OpportunityService{}
+	return &OpportunityService{
+		repository: repository.NewOpportunityRepository(),
+	}
 }
 
 // DetectOpportunities detects trading opportunities based on analysis
@@ -22,30 +27,60 @@ func (s *OpportunityService) DetectOpportunities(
 	analysis *model.AnalysisResult,
 	minRiskReward float64,
 ) []model.TradingOpportunity {
-	opportunities := []model.TradingOpportunity{}
+	// First, update expired opportunities
+	s.repository.UpdateExpiredOpportunities()
+
+	// Get existing active opportunities for this symbol
+	existingOpps, _ := s.repository.FindBySymbol(analysis.Symbol, "ACTIVE")
+
+	// Detect new opportunities
+	newlyDetected := []model.TradingOpportunity{}
 
 	// Try support bounce strategy
 	if opp := s.detectSupportBounce(candles, analysis); opp != nil {
 		if opp.RiskReward.Ratio >= minRiskReward {
-			opportunities = append(opportunities, *opp)
+			// Save to database
+			s.repository.Save(opp)
+			newlyDetected = append(newlyDetected, *opp)
 		}
 	}
 
 	// Try breakout retest strategy
 	if opp := s.detectBreakoutRetest(candles, analysis); opp != nil {
 		if opp.RiskReward.Ratio >= minRiskReward {
-			opportunities = append(opportunities, *opp)
+			s.repository.Save(opp)
+			newlyDetected = append(newlyDetected, *opp)
 		}
 	}
 
 	// Try trend continuation strategy
 	if opp := s.detectTrendContinuation(candles, analysis); opp != nil {
 		if opp.RiskReward.Ratio >= minRiskReward {
-			opportunities = append(opportunities, *opp)
+			s.repository.Save(opp)
+			newlyDetected = append(newlyDetected, *opp)
 		}
 	}
 
-	return opportunities
+	// Combine existing and newly detected (deduplicate by ID)
+	allOpportunities := make(map[string]model.TradingOpportunity)
+
+	// Add existing
+	for _, opp := range existingOpps {
+		allOpportunities[opp.ID] = opp
+	}
+
+	// Add/update with newly detected
+	for _, opp := range newlyDetected {
+		allOpportunities[opp.ID] = opp
+	}
+
+	// Convert map to slice
+	result := make([]model.TradingOpportunity, 0, len(allOpportunities))
+	for _, opp := range allOpportunities {
+		result = append(result, opp)
+	}
+
+	return result
 }
 
 // detectSupportBounce detects support bounce opportunities

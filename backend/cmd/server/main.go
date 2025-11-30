@@ -5,10 +5,17 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/kudaompq/ai_trending/backend/internal/database"
 	"github.com/kudaompq/ai_trending/backend/internal/handler"
 )
 
 func main() {
+	// Initialize database
+	if err := database.InitDB(); err != nil {
+		log.Fatal("Failed to initialize database:", err)
+	}
+	defer database.CloseDB()
+
 	// Create Gin router
 	r := gin.Default()
 
