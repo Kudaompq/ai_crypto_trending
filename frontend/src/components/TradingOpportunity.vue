@@ -1,6 +1,6 @@
 <template>
     <div class="trading-opportunities">
-        <div class="opportunities-header">
+        <div class="opportunities-header" v-if="!hideHeader">
             <h3>🎯 交易机会</h3>
             <div class="summary" v-if="opportunities && opportunities.length > 0">
                 <span class="summary-item">
@@ -100,6 +100,11 @@ import { api } from '../services/api'
 const props = defineProps<{
     symbol: string
     interval: string
+    hideHeader?: boolean
+}>()
+
+const emit = defineEmits<{
+    (e: 'opportunities-updated', count: number): void
 }>()
 
 const opportunities = ref<TradingOpportunity[]>([])
@@ -117,6 +122,9 @@ const fetchOpportunities = async () => {
         const response = await api.getOpportunities(props.symbol, props.interval, 2.0)
         opportunities.value = response.opportunities
         summary.value = response.summary
+
+        // Emit event to parent
+        emit('opportunities-updated', response.opportunities.length)
     } catch (error) {
         console.error('Failed to fetch opportunities:', error)
     } finally {
