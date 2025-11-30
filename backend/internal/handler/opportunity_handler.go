@@ -31,7 +31,7 @@ func (h *OpportunityHandler) GetOpportunities(c *gin.Context) {
 	symbol := c.DefaultQuery("symbol", "ETHUSDT")
 	interval := c.DefaultQuery("interval", "1h")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
-	minRR, _ := strconv.ParseFloat(c.DefaultQuery("min_rr", "3.0"), 64)
+	minRR, _ := strconv.ParseFloat(c.DefaultQuery("min_rr", "2.0"), 64)
 
 	// Get candles
 	candles, err := h.binanceRepo.GetKlines(symbol, interval, limit)

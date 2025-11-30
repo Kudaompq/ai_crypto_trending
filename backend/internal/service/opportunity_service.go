@@ -152,7 +152,7 @@ func (s *OpportunityService) detectSupportBounce(
 	rewardAmount := targets[0].Price - entryPrice
 	rrRatio := rewardAmount / riskAmount
 
-	if rrRatio < 2.5 {
+	if rrRatio < 2.0 {
 		return nil
 	}
 

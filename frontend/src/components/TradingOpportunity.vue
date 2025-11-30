@@ -26,7 +26,7 @@
         <div v-else-if="!opportunities || opportunities.length === 0" class="no-opportunities">
             <div class="icon">📊</div>
             <p class="message">当前暂无符合条件的交易机会</p>
-            <p class="hint">系统只在检测到高质量设置时才会推荐 (盈亏比 ≥ 3:1)</p>
+            <p class="hint">系统只在检测到高质量设置时才会推荐 (盈亏比 ≥ 2:1)</p>
         </div>
 
         <div v-else class="opportunities-list">
@@ -114,7 +114,7 @@ let refreshInterval: number | null = null
 const fetchOpportunities = async () => {
     try {
         loading.value = true
-        const response = await api.getOpportunities(props.symbol, props.interval, 3.0)
+        const response = await api.getOpportunities(props.symbol, props.interval, 2.0)
         opportunities.value = response.opportunities
         summary.value = response.summary
     } catch (error) {
