@@ -92,22 +92,31 @@ func (s *AnalysisService) PerformAnalysis(symbol, interval string, limit int) (*
 	trendDirection := s.trendService.DetermineTrendDirection(candles)
 	patterns := indicator.IdentifyPatterns(candles, trendDirection)
 
-	// Analyze market structure
-	marketStructure := s.marketStructureService.AnalyzeStructure(candles, trendDirection)
+	// Build indicators struct for market structure analysis
+	indicators := model.Indicators{
+		MACD:      macd,
+		KDJ:       kdj,
+		RSI:       rsi,
+		ATR:       atrIndicator,
+		EMA:       emaIndicator,
+		Fibonacci: fibLevels,
+	}
+
+	// Analyze market structure with comprehensive multi-indicator analysis
+	marketStructure := s.marketStructureService.AnalyzeStructure(
+		candles,
+		trendDirection,
+		indicators,
+		srLevels,
+		patterns,
+	)
 
 	return &model.AnalysisResult{
-		Symbol:    symbol,
-		Interval:  interval,
-		Timestamp: candles[len(candles)-1].Timestamp,
-		Trend:     trend,
-		Indicators: model.Indicators{
-			MACD:      macd,
-			KDJ:       kdj,
-			RSI:       rsi,
-			ATR:       atrIndicator,
-			EMA:       emaIndicator,
-			Fibonacci: fibLevels,
-		},
+		Symbol:              symbol,
+		Interval:            interval,
+		Timestamp:           candles[len(candles)-1].Timestamp,
+		Trend:               trend,
+		Indicators:          indicators,
 		SRLevels:            srLevels,
 		CandlestickPatterns: patterns,
 		MarketStructure:     marketStructure,

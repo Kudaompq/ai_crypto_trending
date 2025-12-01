@@ -88,11 +88,71 @@ export interface CandlestickPattern {
   description: string
 }
 
+export interface TrendConfirmation {
+  ema_alignment: string
+  macd_signal: string
+  price_vs_ema: string
+  confirmation_score: number
+  strength: string
+}
+
+export interface VolatilityProfile {
+  current_atr: number
+  atr_percentage: number
+  volatility_level: string
+  is_expanding: boolean
+  risk_adjustment: string
+}
+
+export interface ConfluenceLevel {
+  price: number
+  distance: number
+  factors: string[]
+  strength: number
+  type: string
+}
+
+export interface ConfluenceZone {
+  price_range: [number, number]
+  factors: string[]
+  strength: number
+  significance: string
+}
+
+export interface KeyLevelConfluence {
+  nearest_support: ConfluenceLevel | null
+  nearest_resistance: ConfluenceLevel | null
+  confluence_zones: ConfluenceZone[]
+}
+
+export interface PatternSignals {
+  recent_patterns: string[]
+  bullish_count: number
+  bearish_count: number
+  dominant_signal: string
+  pattern_reliability: number
+}
+
+export interface MarketQuality {
+  overall_score: number
+  grade: string
+  trading_condition: string
+  strengths: string[]
+  weaknesses: string[]
+  recommendation: string
+  score_breakdown: Record<string, number>
+}
+
 export interface MarketStructure {
   higher_high: boolean
   higher_low: boolean
   structure_break: boolean
   risk_level: string
+  trend_confirmation: TrendConfirmation
+  volatility_profile: VolatilityProfile
+  key_level_confluence: KeyLevelConfluence
+  pattern_signals: PatternSignals
+  market_quality: MarketQuality
 }
 
 export interface AnalysisResult {
