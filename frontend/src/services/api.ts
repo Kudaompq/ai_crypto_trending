@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const API_BASE_URL = 'http://localhost:8080/api'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 
 export interface Candle {
   timestamp: number
@@ -15,6 +15,15 @@ export interface KlineData {
   symbol: string
   interval: string
   data: Candle[]
+}
+
+export interface MarketEvent {
+  type: 'kline'
+  symbol: string
+  interval: string
+  candle: Candle
+  is_final: boolean
+  event_time: number
 }
 
 export interface TrendAnalysis {
@@ -255,5 +264,18 @@ export const api = {
   async healthCheck(): Promise<{ status: string; message: string }> {
     const response = await axios.get(`${API_BASE_URL}/health`)
     return response.data
+  },
+
+  createMarketStream(
+    symbol: string,
+    interval: string,
+    onEvent: (event: MarketEvent) => void
+  ): EventSource {
+    const params = new URLSearchParams({ symbol, interval })
+    const source = new EventSource(`${API_BASE_URL}/stream?${params.toString()}`)
+    source.addEventListener('kline', (message) => {
+      onEvent(JSON.parse((message as MessageEvent).data) as MarketEvent)
+    })
+    return source
   }
 }

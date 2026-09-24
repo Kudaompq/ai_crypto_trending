@@ -49,6 +49,9 @@
       </div>
 
       <div v-if="store.lastUpdate" class="last-update">
+        <span class="stream-status" :class="{ connected: streamConnected }">
+          {{ streamConnected ? '实时行情已连接' : '实时行情重连中' }}
+        </span>
         最后更新: {{ formatTime(store.lastUpdate) }}
       </div>
     </div>
@@ -131,7 +134,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useAnalysisStore } from '../stores/analysis'
 import { api } from '../services/api'
-import type { TradingOpportunity as TradingOpportunityType } from '../services/api'
+import type { MarketEvent, TradingOpportunity as TradingOpportunityType } from '../services/api'
 import SimpleChart from '../components/SimpleChart.vue'
 import TradingOpportunity from '../components/TradingOpportunity.vue'
 import TrendPanel from '../components/TrendPanel.vue'
@@ -143,6 +146,9 @@ import TradingRecommendation from '../components/TradingRecommendation.vue'
 
 const store = useAnalysisStore()
 let refreshTimer: number | null = null
+let marketStream: EventSource | null = null
+let lastAnalysisRefresh = 0
+const streamConnected = ref(false)
 
 // Modal state
 const showOpportunityModal = ref(false)
@@ -215,17 +221,18 @@ const intervalOptions = [
 ]
 
 onMounted(() => {
-  store.fetchAnalysis()
+  void store.fetchAnalysis().then(() => {
+    lastAnalysisRefresh = Date.now()
+    connectMarketStream()
+  })
 
-  // Real-time price updates every 1 second
+  // Periodic REST fallback also refreshes the calculated indicators.
   refreshTimer = window.setInterval(() => {
-    handleRefresh()
-  }, 1000)
+    void handleRefresh()
+  }, 60 * 1000)
 
-  // Start background opportunity monitoring - every 5 seconds for real-time updates
   checkForNewOpportunities() // Initial check
-  opportunityCheckInterval = window.setInterval(checkForNewOpportunities, 5 * 1000) // Every 5 seconds
-  console.log('🔄 后台机会监控已启动 (每5秒检查一次)')
+  opportunityCheckInterval = window.setInterval(checkForNewOpportunities, 30 * 1000)
 })
 
 onUnmounted(() => {
@@ -235,21 +242,60 @@ onUnmounted(() => {
 
   if (opportunityCheckInterval) {
     clearInterval(opportunityCheckInterval)
-    console.log('🛑 后台机会监控已停止')
   }
+
+  marketStream?.close()
 })
 
 function changeInterval(interval: string) {
   store.setInterval(interval)
-  handleRefresh()
+  void reloadMarket()
 }
 
 function changeSymbol() {
-  handleRefresh()
+  void reloadMarket()
 }
 
 async function handleRefresh() {
   await store.fetchAnalysis()
+  lastAnalysisRefresh = Date.now()
+}
+
+async function reloadMarket() {
+  marketStream?.close()
+  marketStream = null
+  streamConnected.value = false
+  await handleRefresh()
+  connectMarketStream()
+  await checkForNewOpportunities()
+}
+
+function connectMarketStream() {
+  marketStream?.close()
+  const expectedSymbol = store.symbol
+  const expectedInterval = store.interval
+
+  marketStream = api.createMarketStream(expectedSymbol, expectedInterval, (event: MarketEvent) => {
+    if (event.symbol !== store.symbol || event.interval !== store.interval) return
+
+    store.updateRealtimeCandle(event.candle)
+
+    // Price and the active candle update on every event; heavier indicator
+    // calculations run at most once every 15 seconds or when a candle closes.
+    const analysisIsStale = Date.now() - lastAnalysisRefresh >= 15_000
+    if (event.is_final || analysisIsStale) {
+      void handleRefresh()
+      void checkForNewOpportunities()
+    }
+  })
+
+  marketStream.onopen = () => {
+    streamConnected.value = true
+  }
+  marketStream.onerror = () => {
+    streamConnected.value = false
+    // EventSource reconnects automatically using the same URL.
+  }
 }
 
 function formatTime(date: Date): string {
@@ -277,6 +323,26 @@ function formatTime(date: Date): string {
   padding: 24px;
   margin-bottom: 24px;
   border: 1px solid #3a3a3a;
+}
+
+.stream-status {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 12px;
+  color: #ffa726;
+}
+
+.stream-status::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.stream-status.connected {
+  color: #26a69a;
 }
 
 .header-content {

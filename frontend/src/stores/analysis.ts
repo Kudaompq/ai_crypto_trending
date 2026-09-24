@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { api, type AnalysisResult, type KlineData } from '../services/api'
+import { api, type AnalysisResult, type Candle, type KlineData } from '../services/api'
 
 export const useAnalysisStore = defineStore('analysis', () => {
     // Available trading pairs
@@ -38,6 +38,7 @@ export const useAnalysisStore = defineStore('analysis', () => {
 
     // Actions
     async function fetchAnalysis() {
+        if (loading.value) return
         loading.value = true
         error.value = null
 
@@ -56,6 +57,23 @@ export const useAnalysisStore = defineStore('analysis', () => {
         } finally {
             loading.value = false
         }
+    }
+
+    function updateRealtimeCandle(candle: Candle) {
+        if (!klineData.value) return
+
+        const candles = klineData.value.data
+        const lastIndex = candles.length - 1
+        const lastCandle = candles[lastIndex]
+        if (lastCandle && lastCandle.timestamp === candle.timestamp) {
+            candles[lastIndex] = candle
+        } else if (!lastCandle || lastCandle.timestamp < candle.timestamp) {
+            candles.push(candle)
+            if (candles.length > limit.value) {
+                candles.splice(0, candles.length - limit.value)
+            }
+        }
+        lastUpdate.value = new Date()
     }
 
     function setSymbol(newSymbol: string) {
@@ -91,6 +109,7 @@ export const useAnalysisStore = defineStore('analysis', () => {
 
         // Actions
         fetchAnalysis,
+        updateRealtimeCandle,
         setSymbol,
         setInterval,
         setLimit

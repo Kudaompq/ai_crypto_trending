@@ -56,6 +56,17 @@ ai_trending/
 
 ## 快速开始
 
+在项目根目录运行本地开发脚本（需要 Go 1.23+、Node.js 和 npm）：
+
+```bash
+./start.sh
+```
+
+首次运行会安装前端依赖。访问 `http://localhost:5173`，按 Ctrl+C 停止前后端服务。
+如果 8080 端口已被占用，可以运行 `PORT=18080 ./start.sh`。
+
+也可以分别启动：
+
 ### 1. 启动后端
 
 ```bash
@@ -108,6 +119,15 @@ GET /api/analysis?symbol=ETHUSDT&interval=1d&limit=100
 - 支撑/压力位
 - 蜡烛图形态
 - 市场结构
+
+#### 4. 实时 K 线流
+```bash
+GET /api/stream?symbol=ETHUSDT&interval=1m
+```
+
+该接口使用 Server-Sent Events 持续推送 Binance 合约 K 线。连接建立后先发送
+`ready` 事件，随后发送 `kline` 事件；同一交易对和周期的浏览器连接共享一条
+Binance WebSocket，并在上游断开后自动重连。
 
 ### 示例响应
 
