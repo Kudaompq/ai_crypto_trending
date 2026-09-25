@@ -25,12 +25,12 @@
           <div class="symbol-selector">
             <select :value="store.symbol" @change="changeSymbol" class="symbol-select" aria-label="选择交易对">
               <option v-for="sym in store.availableSymbols" :key="sym.value" :value="sym.value">
-                {{ sym.icon }} {{ sym.label }}
+                {{ sym.label }}
               </option>
             </select>
             <button class="symbol-action" type="button" @click="showSymbolEditor = !showSymbolEditor" title="添加自选交易对">+</button>
-            <button v-if="store.customSymbols.includes(store.symbol)" class="symbol-action" type="button"
-              @click="removeSelectedSymbol" title="删除当前自选交易对">−</button>
+            <button v-if="store.availableSymbols.length > 1" class="symbol-action" type="button"
+              @click="removeSelectedSymbol" title="删除当前交易对">−</button>
           </div>
 
           <div class="interval-buttons">
@@ -180,7 +180,7 @@ async function addSymbol() {
 }
 
 function removeSelectedSymbol() {
-  store.removeCustomSymbol(store.symbol)
+  store.removeSymbol(store.symbol)
   void reloadMarket()
 }
 

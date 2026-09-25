@@ -14,7 +14,10 @@ const mocks = vi.hoisted(() => ({
   store: {
     symbol: 'ETHUSDT',
     interval: '1d',
-    availableSymbols: [{ label: 'ETH/USDT', value: 'ETHUSDT', icon: 'Ξ' }],
+    availableSymbols: [
+      { label: 'BTC/USDT', value: 'BTCUSDT', icon: '₿' },
+      { label: 'ETH/USDT', value: 'ETHUSDT', icon: 'Ξ' }
+    ],
     customSymbols: [],
     storageWarning: null,
     loading: false,
@@ -36,7 +39,7 @@ const mocks = vi.hoisted(() => ({
     setSymbol: vi.fn(),
     setInterval: vi.fn(),
     addCustomSymbol: vi.fn(),
-    removeCustomSymbol: vi.fn()
+    removeSymbol: vi.fn()
   }
 }))
 
@@ -49,7 +52,10 @@ describe('Dashboard retired analysis and opportunity features', () => {
     Object.assign(mocks.store, {
       symbol: 'ETHUSDT',
       interval: '1d',
-      availableSymbols: [{ label: 'ETH/USDT', value: 'ETHUSDT', icon: 'Ξ' }],
+      availableSymbols: [
+        { label: 'BTC/USDT', value: 'BTCUSDT', icon: '₿' },
+        { label: 'ETH/USDT', value: 'ETHUSDT', icon: 'Ξ' }
+      ],
       customSymbols: [],
       storageWarning: null,
       loading: false,
@@ -78,11 +84,27 @@ describe('Dashboard retired analysis and opportunity features', () => {
     await flushPromises()
 
     expect(wrapper.find('.symbol-select').exists()).toBe(true)
+    expect(wrapper.find('.symbol-select').findAll('option').map(option => option.text().trim()))
+      .toEqual(['BTC/USDT', 'ETH/USDT'])
     expect(wrapper.findAll('.interval-btn')).toHaveLength(4)
     expect(wrapper.find('.stream-status').exists()).toBe(true)
     expect(wrapper.find('.panels-grid').exists()).toBe(false)
     expect(wrapper.find('.opportunity-button').exists()).toBe(false)
     expect(wrapper.find('.modal-overlay').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('allows deleting a selected preset symbol', async () => {
+    const wrapper = shallowMount(Dashboard, {
+      global: { stubs: { 'el-icon': true, 'el-alert': true, Loading: true } }
+    })
+    await flushPromises()
+
+    const deleteButton = wrapper.find('button[title="删除当前交易对"]')
+    expect(deleteButton.exists()).toBe(true)
+    await deleteButton.trigger('click')
+    expect(mocks.store.removeSymbol).toHaveBeenCalledWith('ETHUSDT')
 
     wrapper.unmount()
   })

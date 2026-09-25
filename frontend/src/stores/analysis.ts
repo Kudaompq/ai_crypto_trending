@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { api, type AnalysisResult, type Candle, type KlineData } from '../services/api'
 
 const storageKey = 'crypto-trending-custom-symbols'
+const removedPresetsStorageKey = 'crypto-trending-removed-presets'
 const presets = [
     { label: 'BTC/USDT', value: 'BTCUSDT', icon: '₿' },
     { label: 'ETH/USDT', value: 'ETHUSDT', icon: 'Ξ' },
@@ -27,15 +28,31 @@ function readCustomSymbols(): string[] {
     }
 }
 
+function readRemovedPresetSymbols(): string[] {
+    try {
+        const parsed: unknown = JSON.parse(localStorage.getItem(removedPresetsStorageKey) || '[]')
+        if (!Array.isArray(parsed)) return []
+        const presetValues = new Set(presets.map(item => item.value))
+        return [...new Set(parsed.filter((item): item is string =>
+            typeof item === 'string' && presetValues.has(item)
+        ))]
+    } catch {
+        return []
+    }
+}
+
 export const useAnalysisStore = defineStore('analysis', () => {
     const customSymbols = ref<string[]>(readCustomSymbols())
-    const availableSymbols = computed(() => [
-        ...presets,
-        ...customSymbols.value.map(value => ({ label: value, value, icon: '☆' }))
-    ])
+    const removedPresetSymbols = ref<string[]>(readRemovedPresetSymbols())
+    const availableSymbols = computed(() => {
+        const visiblePresets = presets.filter(item => !removedPresetSymbols.value.includes(item.value))
+        const custom = customSymbols.value.map(value => ({ label: value, value, icon: '☆' }))
+        const available = [...visiblePresets, ...custom]
+        return available.length > 0 ? available : [presets[0]!]
+    })
     const storageWarning = ref<string | null>(null)
 
-    const symbol = ref('ETHUSDT')
+    const symbol = ref(availableSymbols.value.find(item => item.value === 'ETHUSDT')?.value ?? availableSymbols.value[0]!.value)
     const interval = ref('1d')
     const limit = ref(100)
     const loading = ref(false)
@@ -63,7 +80,16 @@ export const useAnalysisStore = defineStore('analysis', () => {
             localStorage.setItem(storageKey, JSON.stringify(customSymbols.value))
             storageWarning.value = null
         } catch {
-            storageWarning.value = '自选交易对未能保存到浏览器，刷新后可能丢失'
+            storageWarning.value = '交易对列表未能保存到浏览器，刷新后可能丢失'
+        }
+    }
+
+    function persistRemovedPresets() {
+        try {
+            localStorage.setItem(removedPresetsStorageKey, JSON.stringify(removedPresetSymbols.value))
+            storageWarning.value = null
+        } catch {
+            storageWarning.value = '交易对列表未能保存到浏览器，刷新后可能丢失'
         }
     }
 
@@ -72,20 +98,39 @@ export const useAnalysisStore = defineStore('analysis', () => {
         if (availableSymbols.value.some(item => item.value === normalized)) {
             throw new Error('该交易对已在列表中')
         }
+        const removedPreset = presets.find(item => item.value === normalized && removedPresetSymbols.value.includes(item.value))
+        if (removedPreset) {
+            removedPresetSymbols.value = removedPresetSymbols.value.filter(value => value !== removedPreset.value)
+            persistRemovedPresets()
+            return removedPreset.value
+        }
         const validSymbol = await api.validateSymbol(raw)
         if (availableSymbols.value.some(item => item.value === validSymbol)) {
             throw new Error('该交易对已在列表中')
+        }
+        const validatedRemovedPreset = presets.find(item => item.value === validSymbol && removedPresetSymbols.value.includes(item.value))
+        if (validatedRemovedPreset) {
+            removedPresetSymbols.value = removedPresetSymbols.value.filter(value => value !== validatedRemovedPreset.value)
+            persistRemovedPresets()
+            return validatedRemovedPreset.value
         }
         customSymbols.value.push(validSymbol)
         persistSymbols()
         return validSymbol
     }
 
-    function removeCustomSymbol(value: string) {
-        if (!customSymbols.value.includes(value)) return
-        customSymbols.value = customSymbols.value.filter(item => item !== value)
-        persistSymbols()
-        if (symbol.value === value) setSymbol('ETHUSDT')
+    function removeSymbol(value: string) {
+        if (availableSymbols.value.length <= 1 || !availableSymbols.value.some(item => item.value === value)) return
+
+        if (presets.some(item => item.value === value)) {
+            removedPresetSymbols.value = [...new Set([...removedPresetSymbols.value, value])]
+            persistRemovedPresets()
+        } else {
+            customSymbols.value = customSymbols.value.filter(item => item !== value)
+            persistSymbols()
+        }
+
+        if (symbol.value === value) setSymbol(availableSymbols.value[0]!.value)
     }
 
     function resetMarket() {
@@ -183,7 +228,7 @@ export const useAnalysisStore = defineStore('analysis', () => {
     return {
         availableSymbols, customSymbols, storageWarning, symbol, interval, limit, loading, error, invalidSymbol,
         klineData, analysisResult, lastUpdate, trendDirection, trendStrength, trendColor,
-        addCustomSymbol, removeCustomSymbol, fetchAnalysis, fetchFallbackKline,
+        addCustomSymbol, removeSymbol, fetchAnalysis, fetchFallbackKline,
         updateRealtimeCandle, setSymbol, setInterval, setLimit
     }
 })
