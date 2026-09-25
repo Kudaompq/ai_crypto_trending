@@ -36,6 +36,7 @@ export interface StreamStatus {
 export interface PriceQuote {
   symbol: string
   price: number
+  change_24h_percent: number
   event_time: number
 }
 

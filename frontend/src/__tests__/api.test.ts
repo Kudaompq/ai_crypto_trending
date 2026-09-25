@@ -11,11 +11,11 @@ describe('frontend API surface', () => {
 
   it('loads REST prices for the requested watchlist symbols', async () => {
     axiosMocks.get.mockResolvedValueOnce({ data: {
-      prices: [{ symbol: 'BTCUSDT', price: 65000, event_time: 1 }], unavailable_symbols: []
+      prices: [{ symbol: 'BTCUSDT', price: 65000, change_24h_percent: 1.5, event_time: 1 }], unavailable_symbols: []
     } })
 
     await expect(api.getWatchlistPrices(['BTCUSDT', 'ETHUSDT'])).resolves.toEqual({
-      prices: [{ symbol: 'BTCUSDT', price: 65000, event_time: 1 }], unavailable_symbols: []
+      prices: [{ symbol: 'BTCUSDT', price: 65000, change_24h_percent: 1.5, event_time: 1 }], unavailable_symbols: []
     })
     expect(axiosMocks.get).toHaveBeenCalledWith('/api/watchlist/prices', {
       params: { symbols: 'BTCUSDT,ETHUSDT' }

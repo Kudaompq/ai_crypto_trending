@@ -16,14 +16,15 @@ import (
 
 func TestParseMiniTickerArrayKeepsOnlyValidUSDMSymbols(t *testing.T) {
 	quotes, err := ParseMiniTickerArray([]byte(`[
-		{"e":"!miniTicker@arr","E":1000,"s":"BTCUSDT","c":"65000.25","st":1},
-		{"e":"!miniTicker@arr","E":1001,"s":"ETHUSDT","c":"3000","st":2},
-		{"e":"!miniTicker@arr","E":1002,"s":"BADUSDT","c":"not-a-price","st":1}
+		{"e":"!miniTicker@arr","E":1000,"s":"BTCUSDT","o":"60000","c":"66000","st":1},
+		{"e":"!miniTicker@arr","E":1001,"s":"ETHUSDT","o":"2900","c":"3000","st":2},
+		{"e":"!miniTicker@arr","E":1002,"s":"BADUSDT","o":"10","c":"not-a-price","st":1},
+		{"e":"!miniTicker@arr","E":1003,"s":"ZEROUSDT","o":"0","c":"1","st":1}
 	]`))
 	if err != nil {
 		t.Fatalf("ParseMiniTickerArray returned error: %v", err)
 	}
-	if len(quotes) != 1 || quotes[0] != (PriceQuote{Symbol: "BTCUSDT", Price: 65000.25, EventTime: 1000}) {
+	if len(quotes) != 1 || quotes[0] != (PriceQuote{Symbol: "BTCUSDT", Price: 66000, Change24hPercent: 10, EventTime: 1000}) {
 		t.Fatalf("unexpected parsed quotes: %#v", quotes)
 	}
 }
@@ -45,12 +46,12 @@ func TestMarketPriceServiceFiltersPerSubscriberAndAnnouncesGlobalFeedHealth(t *t
 		t.Fatal("upstream was not connected")
 	}
 
-	service.publishPayload([]byte(`[{"E":2000,"s":"ETHUSDT","c":"3010.5","st":1}]`))
+	service.publishPayload([]byte(`[{"E":2000,"s":"ETHUSDT","o":"3000","c":"3010.5","st":1}]`))
 
 	waitForLiveStatus(t, ethEvents)
 	select {
 	case event := <-ethEvents:
-		if event.Type != "price" || event.Symbol != "ETHUSDT" || event.Price != 3010.5 {
+		if event.Type != "price" || event.Symbol != "ETHUSDT" || event.Price != 3010.5 || math.Abs(event.Change24hPercent-0.35) > 1e-9 {
 			t.Fatalf("unexpected ETH quote: %#v", event)
 		}
 	case <-time.After(time.Second):
@@ -87,8 +88,8 @@ func TestMarketPriceServiceSnapshotFetchesOnceAndFiltersRequestedSymbols(t *test
 	service := newMarketPriceServiceWithSources(nil, func(context.Context) ([]PriceQuote, error) {
 		fetches++
 		return []PriceQuote{
-			{Symbol: "BTCUSDT", Price: 65000},
-			{Symbol: "ETHUSDT", Price: 3000},
+			{Symbol: "BTCUSDT", Price: 65000, Change24hPercent: 1.25},
+			{Symbol: "ETHUSDT", Price: 3000, Change24hPercent: -0.5},
 		}, nil
 	})
 
@@ -96,7 +97,7 @@ func TestMarketPriceServiceSnapshotFetchesOnceAndFiltersRequestedSymbols(t *test
 	if err != nil {
 		t.Fatalf("Snapshot returned error: %v", err)
 	}
-	if fetches != 1 || len(quotes) != 1 || quotes[0].Symbol != "ETHUSDT" || quotes[0].EventTime <= 0 {
+	if fetches != 1 || len(quotes) != 1 || quotes[0].Symbol != "ETHUSDT" || quotes[0].Change24hPercent != -0.5 || quotes[0].EventTime <= 0 {
 		t.Fatalf("unexpected snapshot: fetches=%d quotes=%#v", fetches, quotes)
 	}
 }
@@ -166,7 +167,7 @@ func TestMarketPriceServiceReconnectsAndPublishesLiveOnlyAfterValidPayload(t *te
 		if attempts.Add(1) == 1 {
 			return errors.New("test disconnect")
 		}
-		onPayload([]byte(`[{"E":3000,"s":"BTCUSDT","c":"65001","st":1}]`))
+		onPayload([]byte(`[{"E":3000,"s":"BTCUSDT","o":"64000","c":"65001","st":1}]`))
 		<-ctx.Done()
 		return ctx.Err()
 	}, nil)
@@ -178,7 +179,7 @@ func TestMarketPriceServiceReconnectsAndPublishesLiveOnlyAfterValidPayload(t *te
 	waitForLiveStatus(t, events)
 	select {
 	case event := <-events:
-		if event.Type != "price" || event.Symbol != "BTCUSDT" || event.Price != 65001 {
+		if event.Type != "price" || event.Symbol != "BTCUSDT" || event.Price != 65001 || event.Change24hPercent != 1.5640625 {
 			t.Fatalf("unexpected quote after reconnect: %#v", event)
 		}
 	case <-time.After(time.Second):
@@ -206,7 +207,7 @@ func waitForStatus(t *testing.T, events <-chan PriceEvent, state string) {
 }
 
 func TestConnectBinanceMiniTickerReadsLocalWebSocketAndClosesOnCancel(t *testing.T) {
-	message := []byte(`[{"E":100,"s":"BTCUSDT","c":"65000","st":1}]`)
+	message := []byte(`[{"E":100,"s":"BTCUSDT","o":"64000","c":"65000","st":1}]`)
 	upgrader := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		connection, err := upgrader.Upgrade(w, r, nil)

@@ -31,8 +31,8 @@ func (f *fakeWatchlistPrices) Subscribe(symbols []string) (<-chan service.PriceE
 func TestWatchlistPriceSnapshotValidatesAndReturnsOnlyRequestedSymbols(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	prices := &fakeWatchlistPrices{quotes: []service.PriceQuote{
-		{Symbol: "BTCUSDT", Price: 65000, EventTime: 100},
-		{Symbol: "ETHUSDT", Price: 3000, EventTime: 100},
+		{Symbol: "BTCUSDT", Price: 65000, Change24hPercent: 1.25, EventTime: 100},
+		{Symbol: "ETHUSDT", Price: 3000, Change24hPercent: -0.5, EventTime: 100},
 	}}
 	validator := service.NewSymbolValidatorWithFetcher(func(context.Context) (map[string]bool, error) {
 		return map[string]bool{"BTCUSDT": true, "ETHUSDT": true, "DOGEUSDT": false}, nil
@@ -45,7 +45,7 @@ func TestWatchlistPriceSnapshotValidatesAndReturnsOnlyRequestedSymbols(t *testin
 	request := httptest.NewRequest("GET", "/watchlist/prices?symbols=btcusdt,ethusdt", nil)
 	router.ServeHTTP(response, request)
 
-	if response.Code != 200 || !strings.Contains(response.Body.String(), `"symbol":"BTCUSDT"`) || !strings.Contains(response.Body.String(), `"symbol":"ETHUSDT"`) {
+	if response.Code != 200 || !strings.Contains(response.Body.String(), `"symbol":"BTCUSDT"`) || !strings.Contains(response.Body.String(), `"symbol":"ETHUSDT"`) || !strings.Contains(response.Body.String(), `"change_24h_percent":1.25`) {
 		t.Fatalf("unexpected snapshot response %d: %s", response.Code, response.Body.String())
 	}
 	if strings.Join(prices.snapshotSymbols, ",") != "BTCUSDT,ETHUSDT" {
@@ -76,7 +76,7 @@ func TestWatchlistPriceStreamEmitsStatusAndScopedPrices(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	prices := &fakeWatchlistPrices{events: make(chan service.PriceEvent, 2)}
 	prices.events <- service.PriceEvent{Type: "status", State: "live", Message: "实时"}
-	prices.events <- service.PriceEvent{Type: "price", Symbol: "BTCUSDT", Price: 65000, EventTime: 200}
+	prices.events <- service.PriceEvent{Type: "price", Symbol: "BTCUSDT", Price: 65000, Change24hPercent: -2.5, EventTime: 200}
 	close(prices.events)
 	validator := service.NewSymbolValidatorWithFetcher(func(context.Context) (map[string]bool, error) {
 		return map[string]bool{"BTCUSDT": true}, nil
@@ -94,6 +94,9 @@ func TestWatchlistPriceStreamEmitsStatusAndScopedPrices(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), `"unavailable_symbols":["FAKEUSDT"]`) {
 		t.Fatalf("ready event did not report unsupported symbols: %s", response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"change_24h_percent":-2.5`) {
+		t.Fatalf("price stream did not include 24h change percent: %s", response.Body.String())
 	}
 	if !prices.unsubscribed {
 		t.Fatal("SSE response completion did not release the stream subscription")

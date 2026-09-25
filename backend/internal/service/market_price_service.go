@@ -23,19 +23,21 @@ const (
 
 // PriceQuote is a current USDⓈ-M contract price.
 type PriceQuote struct {
-	Symbol    string  `json:"symbol"`
-	Price     float64 `json:"price"`
-	EventTime int64   `json:"event_time"`
+	Symbol           string  `json:"symbol"`
+	Price            float64 `json:"price"`
+	Change24hPercent float64 `json:"change_24h_percent"`
+	EventTime        int64   `json:"event_time"`
 }
 
 // PriceEvent is either a quote update or the state of the shared upstream feed.
 type PriceEvent struct {
 	Type      string  `json:"type"`
-	Symbol    string  `json:"symbol,omitempty"`
-	Price     float64 `json:"price,omitempty"`
-	EventTime int64   `json:"event_time,omitempty"`
-	State     string  `json:"state,omitempty"`
-	Message   string  `json:"message,omitempty"`
+	Symbol           string  `json:"symbol,omitempty"`
+	Price            float64 `json:"price,omitempty"`
+	Change24hPercent float64 `json:"change_24h_percent"`
+	EventTime        int64   `json:"event_time,omitempty"`
+	State            string  `json:"state,omitempty"`
+	Message          string  `json:"message,omitempty"`
 }
 
 type tickerConnection func(context.Context, func([]byte)) error
@@ -64,17 +66,18 @@ type MarketPriceService struct {
 func NewMarketPriceService() *MarketPriceService {
 	client := futures.NewClient("", "")
 	return newMarketPriceServiceWithSources(connectBinanceMiniTicker, func(ctx context.Context) ([]PriceQuote, error) {
-		prices, err := client.NewListPricesService().Do(ctx)
+		prices, err := client.NewListPriceChangeStatsService().Do(ctx)
 		if err != nil {
 			return nil, err
 		}
 		quotes := make([]PriceQuote, 0, len(prices))
 		for _, item := range prices {
-			price, parseErr := strconv.ParseFloat(item.Price, 64)
-			if parseErr != nil || price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) {
+			price, priceErr := strconv.ParseFloat(item.LastPrice, 64)
+			change, changeErr := strconv.ParseFloat(item.PriceChangePercent, 64)
+			if priceErr != nil || changeErr != nil || price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) || math.IsNaN(change) || math.IsInf(change, 0) {
 				continue
 			}
-			quotes = append(quotes, PriceQuote{Symbol: item.Symbol, Price: price})
+			quotes = append(quotes, PriceQuote{Symbol: item.Symbol, Price: price, Change24hPercent: change})
 		}
 		return quotes, nil
 	})
@@ -109,7 +112,7 @@ func (s *MarketPriceService) Snapshot(ctx context.Context, symbols []string) ([]
 	}
 	bySymbol := make(map[string]PriceQuote, len(allQuotes))
 	for _, quote := range allQuotes {
-		if _, ok := requested[quote.Symbol]; !ok || quote.Price <= 0 || math.IsNaN(quote.Price) || math.IsInf(quote.Price, 0) {
+		if _, ok := requested[quote.Symbol]; !ok || quote.Price <= 0 || math.IsNaN(quote.Price) || math.IsInf(quote.Price, 0) || math.IsNaN(quote.Change24hPercent) || math.IsInf(quote.Change24hPercent, 0) {
 			continue
 		}
 		quote.EventTime = eventTime
@@ -256,7 +259,7 @@ func (s *MarketPriceService) publishPayload(payload []byte) {
 	s.state, s.message = "live", "全市场实时行情已连接"
 	s.broadcastLocked(PriceEvent{Type: "status", State: s.state, Message: s.message}, nil)
 	for _, quote := range quotes {
-		event := PriceEvent{Type: "price", Symbol: quote.Symbol, Price: quote.Price, EventTime: quote.EventTime}
+		event := PriceEvent{Type: "price", Symbol: quote.Symbol, Price: quote.Price, Change24hPercent: quote.Change24hPercent, EventTime: quote.EventTime}
 		s.broadcastLocked(event, map[string]struct{}{quote.Symbol: {}})
 	}
 }
@@ -286,20 +289,23 @@ func ParseMiniTickerArray(payload []byte) ([]PriceQuote, error) {
 	quotes := make([]PriceQuote, 0, len(tickers))
 	for _, ticker := range tickers {
 		var eventTime int64
-		var symbol, rawPrice string
+		var symbol, rawPrice, rawOpenPrice string
 		var status int
 		if json.Unmarshal(ticker["E"], &eventTime) != nil ||
 			json.Unmarshal(ticker["s"], &symbol) != nil ||
 			json.Unmarshal(ticker["c"], &rawPrice) != nil ||
+			json.Unmarshal(ticker["o"], &rawOpenPrice) != nil ||
 			json.Unmarshal(ticker["st"], &status) != nil ||
 			status != 1 || !symbolPattern.MatchString(symbol) {
 			continue
 		}
 		price, err := strconv.ParseFloat(rawPrice, 64)
-		if err != nil || price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) || eventTime <= 0 {
+		openPrice, openErr := strconv.ParseFloat(rawOpenPrice, 64)
+		if err != nil || openErr != nil || price <= 0 || openPrice <= 0 || math.IsNaN(price) || math.IsInf(price, 0) || math.IsNaN(openPrice) || math.IsInf(openPrice, 0) || eventTime <= 0 {
 			continue
 		}
-		quotes = append(quotes, PriceQuote{Symbol: symbol, Price: price, EventTime: eventTime})
+		change := (price - openPrice) / openPrice * 100
+		quotes = append(quotes, PriceQuote{Symbol: symbol, Price: price, Change24hPercent: change, EventTime: eventTime})
 	}
 	return quotes, nil
 }

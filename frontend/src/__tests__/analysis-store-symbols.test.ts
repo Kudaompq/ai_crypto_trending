@@ -7,8 +7,8 @@ import { useAnalysisStore } from '../stores/analysis'
 const apiMocks = vi.hoisted(() => ({
   validateSymbol: vi.fn(async (raw: string) => raw.trim().toUpperCase()),
   getWatchlistPrices: vi.fn(async () => ({ prices: [
-    { symbol: 'BTCUSDT', price: 100, event_time: 1000 },
-    { symbol: 'ETHUSDT', price: 200, event_time: 1000 }
+    { symbol: 'BTCUSDT', price: 100, change_24h_percent: 0.5, event_time: 1000 },
+    { symbol: 'ETHUSDT', price: 200, change_24h_percent: -0.25, event_time: 1000 }
   ], unavailable_symbols: [] })),
   createWatchlistPriceStream: vi.fn()
 }))
@@ -21,8 +21,8 @@ describe('editable preset symbols', () => {
     apiMocks.validateSymbol.mockClear()
     setActivePinia(createPinia())
     apiMocks.getWatchlistPrices.mockResolvedValue({ prices: [
-      { symbol: 'BTCUSDT', price: 100, event_time: 1000 },
-      { symbol: 'ETHUSDT', price: 200, event_time: 1000 }
+      { symbol: 'BTCUSDT', price: 100, change_24h_percent: 0.5, event_time: 1000 },
+      { symbol: 'ETHUSDT', price: 200, change_24h_percent: -0.25, event_time: 1000 }
     ], unavailable_symbols: [] })
     apiMocks.createWatchlistPriceStream.mockReset()
   })
@@ -68,7 +68,7 @@ describe('editable preset symbols', () => {
   })
 
   it('loads every watchlist quote and keeps newer stream prices when an older snapshot arrives late', async () => {
-    let onQuote: (event: { symbol: string; price: number; event_time: number }) => void = () => {}
+    let onQuote: (event: { symbol: string; price: number; change_24h_percent: number; event_time: number }) => void = () => {}
     apiMocks.createWatchlistPriceStream.mockImplementation((_symbols, handler) => {
       onQuote = handler
       return { close: vi.fn() }
@@ -76,19 +76,19 @@ describe('editable preset symbols', () => {
     const store = useAnalysisStore()
 
     const loading = store.startWatchlistPriceStream()
-    onQuote({ symbol: 'BTCUSDT', price: 101, event_time: 2000 })
+    onQuote({ symbol: 'BTCUSDT', price: 101, change_24h_percent: 1, event_time: 2000 })
     await loading
 
     expect(apiMocks.createWatchlistPriceStream).toHaveBeenCalledWith(
       expect.arrayContaining(store.availableSymbols.map(item => item.value)),
       expect.any(Function), expect.any(Function)
     )
-    expect(store.pricesBySymbol.BTCUSDT).toEqual({ price: 101, eventTime: 2000 })
-    expect(store.pricesBySymbol.ETHUSDT).toEqual({ price: 200, eventTime: 1000 })
+    expect(store.pricesBySymbol.BTCUSDT).toEqual({ price: 101, change24hPercent: 1, eventTime: 2000 })
+    expect(store.pricesBySymbol.ETHUSDT).toEqual({ price: 200, change24hPercent: -0.25, eventTime: 1000 })
   })
 
   it('ignores quotes outside the watchlist and retains prices while the shared feed reconnects', async () => {
-    let onQuote: (event: { symbol: string; price: number; event_time: number }) => void = () => {}
+    let onQuote: (event: { symbol: string; price: number; change_24h_percent: number; event_time: number }) => void = () => {}
     let onStatus: (status: { state: 'connecting' | 'live' | 'reconnecting'; message: string; unavailable_symbols?: string[] }) => void = () => {}
     apiMocks.createWatchlistPriceStream.mockImplementation((_symbols, quoteHandler, statusHandler) => {
       onQuote = quoteHandler
@@ -98,22 +98,22 @@ describe('editable preset symbols', () => {
     const store = useAnalysisStore()
     await store.startWatchlistPriceStream()
 
-    onQuote({ symbol: 'NOTWATCHEDUSDT', price: 1, event_time: 5 })
+    onQuote({ symbol: 'NOTWATCHEDUSDT', price: 1, change_24h_percent: 0, event_time: 5 })
     onStatus({ state: 'reconnecting', message: '连接中断', unavailable_symbols: ['FAKEUSDT'] })
 
     expect(store.pricesBySymbol.NOTWATCHEDUSDT).toBeUndefined()
     expect(store.priceStreamState).toBe('reconnecting')
     expect(store.unavailableSymbols).toEqual(['FAKEUSDT'])
-    expect(store.pricesBySymbol.BTCUSDT).toEqual({ price: 100, eventTime: 1000 })
+    expect(store.pricesBySymbol.BTCUSDT).toEqual({ price: 100, change24hPercent: 0.5, eventTime: 1000 })
 
     onStatus({ state: 'live', message: '连接已恢复' })
     expect(store.priceStreamState).toBe('live')
   })
 
   it('lets a received stream update supersede a REST snapshot timestamp from another clock', async () => {
-    let onQuote: (event: { symbol: string; price: number; event_time: number }) => void = () => {}
+    let onQuote: (event: { symbol: string; price: number; change_24h_percent: number; event_time: number }) => void = () => {}
     apiMocks.getWatchlistPrices.mockResolvedValue({ prices: [
-      { symbol: 'BTCUSDT', price: 100, event_time: 5000 }
+      { symbol: 'BTCUSDT', price: 100, change_24h_percent: 0.5, event_time: 5000 }
     ], unavailable_symbols: [] })
     apiMocks.createWatchlistPriceStream.mockImplementation((_symbols, handler) => {
       onQuote = handler
@@ -122,9 +122,9 @@ describe('editable preset symbols', () => {
     const store = useAnalysisStore()
     await store.startWatchlistPriceStream()
 
-    onQuote({ symbol: 'BTCUSDT', price: 101, event_time: 4000 })
+    onQuote({ symbol: 'BTCUSDT', price: 101, change_24h_percent: 1, event_time: 4000 })
 
-    expect(store.pricesBySymbol.BTCUSDT).toEqual({ price: 101, eventTime: 4000 })
+    expect(store.pricesBySymbol.BTCUSDT).toEqual({ price: 101, change24hPercent: 1, eventTime: 4000 })
   })
 
   it('closes the previous quote stream when the watchlist subscription is replaced or stopped', () => {

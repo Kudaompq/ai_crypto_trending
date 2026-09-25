@@ -94,6 +94,10 @@
               <div class="watchlist-price-info">
                 <strong>{{ store.unavailableSymbols.includes(item.value)
                   ? '暂不支持' : formatPrice(store.pricesBySymbol[item.value]?.price) }}</strong>
+                <span v-if="store.pricesBySymbol[item.value]?.change24hPercent !== undefined" class="watchlist-change"
+                  :class="(store.pricesBySymbol[item.value]?.change24hPercent ?? 0) >= 0 ? 'positive' : 'negative'">
+                  {{ formatChangePercent(store.pricesBySymbol[item.value]?.change24hPercent) }}
+                </span>
               </div>
             </button>
             <button v-if="store.availableSymbols.length > 1" class="watchlist-delete" type="button"
@@ -219,6 +223,11 @@ function removeSymbol(symbol: string) {
 function formatPrice(price?: number): string {
   if (price === undefined || !Number.isFinite(price)) return '获取中…'
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 8 }).format(price)
+}
+
+function formatChangePercent(change?: number): string {
+  if (change === undefined || !Number.isFinite(change)) return '—'
+  return `${change > 0 ? '+' : ''}${change.toFixed(2)}%`
 }
 
 async function handleRefresh() {
@@ -602,6 +611,9 @@ function formatTime(date: Date): string {
 .watchlist-symbol-info strong, .watchlist-price-info strong { font-size: 13px; }
 .watchlist-symbol-info span { color: #888; font-size: 11px; }
 .watchlist-price-info { align-items: flex-end; }
+.watchlist-change { font-size: 12px; font-variant-numeric: tabular-nums; }
+.watchlist-change.positive { color: #26a69a; }
+.watchlist-change.negative { color: #ef5350; }
 .watchlist-delete { flex-shrink: 0; padding: 0 4px; border: 0; background: transparent; color: #888; cursor: pointer; }
 .watchlist-delete:hover { color: #ff8a80; }
 .tradingview-attribution { margin-top: auto; color: #8f8f8f; font-size: 11px; text-decoration: none; }

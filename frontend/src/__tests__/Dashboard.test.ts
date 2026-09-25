@@ -34,7 +34,10 @@ const mocks = vi.hoisted(() => ({
       { label: 'ETH/USDT', value: 'ETHUSDT', icon: 'Ξ' }
     ],
     customSymbols: [],
-    pricesBySymbol: { BTCUSDT: { price: 67420.5, eventTime: 1 }, ETHUSDT: { price: 3521.75, eventTime: 1 } },
+    pricesBySymbol: {
+      BTCUSDT: { price: 67420.5, change24hPercent: 0.5, eventTime: 1 },
+      ETHUSDT: { price: 3521.75, change24hPercent: -0.25, eventTime: 1 }
+    },
     unavailableSymbols: [],
     priceStreamState: 'live',
     startWatchlistPriceStream: vi.fn(),
@@ -78,7 +81,10 @@ describe('Dashboard watchlist and market controls', () => {
         { label: 'ETH/USDT', value: 'ETHUSDT', icon: 'Ξ' }
       ],
       customSymbols: [],
-      pricesBySymbol: { BTCUSDT: { price: 67420.5, eventTime: 1 }, ETHUSDT: { price: 3521.75, eventTime: 1 } },
+      pricesBySymbol: {
+        BTCUSDT: { price: 67420.5, change24hPercent: 0.5, eventTime: 1 },
+        ETHUSDT: { price: 3521.75, change24hPercent: -0.25, eventTime: 1 }
+      },
       unavailableSymbols: [],
       priceStreamState: 'live',
       storageWarning: null,
@@ -124,6 +130,34 @@ describe('Dashboard watchlist and market controls', () => {
 
     wrapper.unmount()
     expect(mocks.store.stopWatchlistPriceStream).toHaveBeenCalledOnce()
+  })
+
+  it('shows 24h percent changes with zero and positive in green and negative in red', async () => {
+    Object.assign(mocks.store, {
+      availableSymbols: [
+        { label: 'BTC/USDT', value: 'BTCUSDT', icon: '₿' },
+        { label: 'ETH/USDT', value: 'ETHUSDT', icon: 'Ξ' },
+        { label: 'SOL/USDT', value: 'SOLUSDT', icon: '◎' }
+      ],
+      pricesBySymbol: {
+        BTCUSDT: { price: 67420.5, change24hPercent: 1.25, eventTime: 1 },
+        ETHUSDT: { price: 3521.75, change24hPercent: -2.5, eventTime: 1 },
+        SOLUSDT: { price: 142.5, change24hPercent: 0, eventTime: 1 }
+      }
+    })
+    const wrapper = shallowMount(Dashboard, {
+      global: { stubs: { 'el-icon': true, 'el-alert': true, Loading: true } }
+    })
+
+    const change = (symbol: string) => wrapper.find(`.watchlist-item[data-symbol="${symbol}"] .watchlist-change`)
+    expect(change('BTCUSDT').text()).toBe('+1.25%')
+    expect(change('BTCUSDT').classes()).toContain('positive')
+    expect(change('ETHUSDT').text()).toBe('-2.50%')
+    expect(change('ETHUSDT').classes()).toContain('negative')
+    expect(change('SOLUSDT').text()).toBe('0.00%')
+    expect(change('SOLUSDT').classes()).toContain('positive')
+
+    wrapper.unmount()
   })
 
   it('selects a watchlist symbol and keeps add and delete controls in the watchlist', async () => {

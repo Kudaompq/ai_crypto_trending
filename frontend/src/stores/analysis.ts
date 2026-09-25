@@ -61,7 +61,7 @@ export const useAnalysisStore = defineStore('analysis', () => {
     const klineData = ref<KlineData | null>(null)
     const analysisResult = ref<AnalysisResult | null>(null)
     const lastUpdate = ref<Date | null>(null)
-    const pricesBySymbol = ref<Record<string, { price: number; eventTime: number }>>({})
+    const pricesBySymbol = ref<Record<string, { price: number; change24hPercent: number; eventTime: number }>>({})
     const unavailableSymbols = ref<string[]>([])
     const priceStreamState = ref<'connecting' | 'live' | 'reconnecting'>('connecting')
 
@@ -246,7 +246,11 @@ export const useAnalysisStore = defineStore('analysis', () => {
             const lastStreamTime = streamEventTimes[event.symbol]
             if (lastStreamTime === undefined || event.event_time >= lastStreamTime) {
                 streamEventTimes[event.symbol] = event.event_time
-                pricesBySymbol.value[event.symbol] = { price: event.price, eventTime: event.event_time }
+                pricesBySymbol.value[event.symbol] = {
+                    price: event.price,
+                    change24hPercent: event.change_24h_percent,
+                    eventTime: event.event_time
+                }
             }
             priceStreamState.value = 'live'
         }, (status: PriceStreamStatus) => {
@@ -268,7 +272,11 @@ export const useAnalysisStore = defineStore('analysis', () => {
                 const previous = pricesBySymbol.value[quote.symbol]
                 const lastStreamTime = streamEventTimes[quote.symbol]
                 if (lastStreamTime === undefined && (!previous || quote.event_time >= previous.eventTime)) {
-                    pricesBySymbol.value[quote.symbol] = { price: quote.price, eventTime: quote.event_time }
+                    pricesBySymbol.value[quote.symbol] = {
+                        price: quote.price,
+                        change24hPercent: quote.change_24h_percent,
+                        eventTime: quote.event_time
+                    }
                 }
             }
         } catch {
