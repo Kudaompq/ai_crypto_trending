@@ -340,6 +340,15 @@ async function reloadMarket() {
     streamNote.value = store.error || '该交易对不可用，请选择其他交易对'
     return
   }
+  streamStartedAt = Date.now()
+  lastFallbackAttempt = streamStartedAt
+  if (store.lastUpdate && !store.error) {
+    streamState.value = 'fallback'
+    streamNote.value = '等待实时行情，当前使用备用更新'
+  } else {
+    streamState.value = 'unavailable'
+    streamNote.value = store.error || '暂时无法获取行情数据'
+  }
   connectMarketStream()
   await checkForNewOpportunities()
 }

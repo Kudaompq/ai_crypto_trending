@@ -11,6 +11,8 @@ import (
 	"github.com/kudaompq/ai_trending/backend/internal/model"
 )
 
+const binanceFuturesMarketStreamURL = "wss://fstream.binance.com/market/ws"
+
 // MarketEvent is a real-time kline update sent to browser clients.
 type MarketEvent struct {
 	Type      string       `json:"type"`
@@ -35,13 +37,21 @@ type marketStream struct {
 // MarketStreamService shares one Binance websocket connection between all
 // browser subscribers interested in the same symbol and interval.
 type MarketStreamService struct {
-	mu      sync.Mutex
-	streams map[string]*marketStream
-	connect func(string, string, futures.WsKlineHandler, futures.ErrHandler) (chan struct{}, chan struct{}, error)
+	mu             sync.Mutex
+	streams        map[string]*marketStream
+	connect        func(string, string, futures.WsKlineHandler, futures.ErrHandler) (chan struct{}, chan struct{}, error)
+	silenceTimeout time.Duration
+	retryDelay     time.Duration
 }
 
 func NewMarketStreamService() *MarketStreamService {
-	return &MarketStreamService{streams: make(map[string]*marketStream), connect: futures.WsKlineServe}
+	futures.BaseWsMainUrl = binanceFuturesMarketStreamURL
+	return &MarketStreamService{
+		streams:        make(map[string]*marketStream),
+		connect:        futures.WsKlineServe,
+		silenceTimeout: 15 * time.Second,
+		retryDelay:     2 * time.Second,
+	}
 }
 
 func (s *MarketStreamService) Subscribe(symbol, interval string) (<-chan MarketEvent, func()) {
@@ -90,6 +100,7 @@ func (s *MarketStreamService) Subscribe(symbol, interval string) (<-chan MarketE
 func (s *MarketStreamService) run(stream *marketStream) {
 	for {
 		stream.broadcast(MarketEvent{Type: "status", Symbol: stream.symbol, Interval: stream.interval, State: "connecting", Message: "正在连接行情数据源"})
+		activity := make(chan struct{}, 1)
 		doneC, stopC, err := s.connect(
 			stream.symbol,
 			stream.interval,
@@ -97,6 +108,10 @@ func (s *MarketStreamService) run(stream *marketStream) {
 				marketEvent, parseErr := convertKlineEvent(event)
 				if parseErr == nil {
 					stream.broadcast(marketEvent)
+					select {
+					case activity <- struct{}{}:
+					default:
+					}
 				}
 			},
 			func(err error) {
@@ -111,21 +126,52 @@ func (s *MarketStreamService) run(stream *marketStream) {
 			select {
 			case <-stream.stop:
 				return
-			case <-time.After(2 * time.Second):
+			case <-time.After(s.retryDelay):
 				continue
+			}
+		}
+
+		silenceTimer := time.NewTimer(s.silenceTimeout)
+		connected := true
+		for connected {
+			select {
+			case <-stream.stop:
+				if !silenceTimer.Stop() {
+					select {
+					case <-silenceTimer.C:
+					default:
+					}
+				}
+				close(stopC)
+				return
+			case <-doneC:
+				connected = false
+			case <-activity:
+				if !silenceTimer.Stop() {
+					select {
+					case <-silenceTimer.C:
+					default:
+					}
+				}
+				silenceTimer.Reset(s.silenceTimeout)
+			case <-silenceTimer.C:
+				log.Printf("Binance stream %s:%s produced no events for %s; reconnecting", stream.symbol, stream.interval, s.silenceTimeout)
+				stream.broadcast(MarketEvent{Type: "status", Symbol: stream.symbol, Interval: stream.interval, State: "reconnecting", Message: "实时行情长时间无数据，正在重试"})
+				close(stopC)
+				connected = false
+			}
+		}
+		if !silenceTimer.Stop() {
+			select {
+			case <-silenceTimer.C:
+			default:
 			}
 		}
 
 		select {
 		case <-stream.stop:
-			close(stopC)
 			return
-		case <-doneC:
-			select {
-			case <-stream.stop:
-				return
-			case <-time.After(time.Second):
-			}
+		case <-time.After(s.retryDelay):
 		}
 	}
 }
