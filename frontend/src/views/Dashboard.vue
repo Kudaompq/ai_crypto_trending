@@ -22,13 +22,6 @@
         </h1>
 
         <div class="controls">
-          <div class="interval-buttons">
-            <button v-for="option in intervalOptions" :key="option.value" class="interval-btn"
-              :class="{ active: store.interval === option.value }" @click="changeInterval(option.value)">
-              {{ option.label }}
-            </button>
-          </div>
-
           <!-- GitHub Link -->
           <a href="https://github.com/kudaompq" target="_blank" rel="noopener noreferrer" class="github-link"
             title="GitHub">
@@ -104,13 +97,19 @@
               title="删除交易对" :aria-label="`删除 ${item.label}`" @click="removeSymbol(item.value)">×</button>
           </div>
         </div>
-        <a class="tradingview-attribution" href="https://www.tradingview.com/" target="_blank"
-          rel="noopener noreferrer">Charts by TradingView</a>
       </aside>
 
       <div class="chart-section">
+        <div class="interval-buttons" role="group" aria-label="K线周期">
+          <button v-for="option in intervalOptions" :key="option.value" class="interval-btn"
+            :data-interval="option.value" :aria-pressed="store.interval === option.value"
+            :class="{ active: store.interval === option.value }" @click="changeInterval(option.value)">
+            {{ option.label }}
+          </button>
+        </div>
         <SimpleChart v-if="store.klineData" :candles="store.klineData.data"
-          :symbol="store.symbol" :interval="store.interval" :atr="store.analysisResult?.indicators.atr" />
+          :symbol="store.symbol" :interval="store.interval" :has-more-before="store.klineData.has_more_before"
+          :atr="store.analysisResult?.indicators.atr" />
         <div v-else class="chart-placeholder">
           {{ store.loading ? '正在加载 K 线…' : '选择交易对后显示 K 线图' }}
         </div>
@@ -125,6 +124,7 @@ import { useAnalysisStore } from '../stores/analysis'
 import { api } from '../services/api'
 import type { MarketEvent } from '../services/api'
 import SimpleChart from '../components/SimpleChart.vue'
+import { BINANCE_KLINE_INTERVALS } from '../services/klineHistory'
 
 const store = useAnalysisStore()
 const showSymbolEditor = ref(false)
@@ -155,12 +155,12 @@ let fallbackGeneration: number | null = null
 let validatingStreamError = false
 let marketGeneration = 0
 
-const intervalOptions = [
-  { label: '15分钟', value: '15m' },
-  { label: '1小时', value: '1h' },
-  { label: '4小时', value: '4h' },
-  { label: '1天', value: '1d' }
-]
+const intervalLabels: Record<(typeof BINANCE_KLINE_INTERVALS)[number], string> = {
+  '1m': '1分', '3m': '3分', '5m': '5分', '15m': '15分', '30m': '30分',
+  '1h': '1小时', '2h': '2小时', '4h': '4小时', '6h': '6小时', '8h': '8小时', '12h': '12小时',
+  '1d': '1天', '3d': '3天', '1w': '1周', '1M': '1月'
+}
+const intervalOptions = BINANCE_KLINE_INTERVALS.map(value => ({ value, label: intervalLabels[value] }))
 
 onMounted(() => {
   void reloadMarket()
@@ -439,7 +439,12 @@ function formatTime(date: Date): string {
 
 .interval-buttons {
   display: flex;
+  flex-wrap: nowrap;
   gap: 8px;
+  max-width: 100%;
+  margin-bottom: 12px;
+  overflow-x: auto;
+  scrollbar-width: thin;
   background: rgba(255, 255, 255, 0.05);
   padding: 4px;
   border-radius: 10px;
@@ -447,7 +452,8 @@ function formatTime(date: Date): string {
 }
 
 .interval-btn {
-  padding: 8px 20px;
+  flex: 0 0 auto;
+  padding: 8px 12px;
   border: none;
   background: transparent;
   color: #999;
@@ -616,9 +622,6 @@ function formatTime(date: Date): string {
 .watchlist-change.negative { color: #ef5350; }
 .watchlist-delete { flex-shrink: 0; padding: 0 4px; border: 0; background: transparent; color: #888; cursor: pointer; }
 .watchlist-delete:hover { color: #ff8a80; }
-.tradingview-attribution { margin-top: auto; color: #8f8f8f; font-size: 11px; text-decoration: none; }
-.tradingview-attribution:hover { color: #ddd; }
-
 .chart-section {
   flex: 1;
   min-width: 0;
@@ -654,7 +657,7 @@ function formatTime(date: Date): string {
   .watchlist { flex-basis: auto; }
   .watchlist-items { max-height: none; overflow: visible; }
   .chart-placeholder { min-height: 360px; }
-  .interval-buttons { width: 100%; justify-content: space-between; }
-  .interval-btn { flex: 1; padding: 8px 4px; font-size: 13px; white-space: nowrap; }
+  .interval-buttons { width: 100%; }
+  .interval-btn { padding: 8px 10px; font-size: 13px; white-space: nowrap; }
 }
 </style>

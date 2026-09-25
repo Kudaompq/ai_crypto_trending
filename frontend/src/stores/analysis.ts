@@ -213,7 +213,7 @@ export const useAnalysisStore = defineStore('analysis', () => {
 
     function updateRealtimeCandle(candle: Candle) {
         if (!klineData.value) {
-            klineData.value = { symbol: symbol.value, interval: interval.value, data: [candle] }
+            klineData.value = { symbol: symbol.value, interval: interval.value, data: [candle], has_more_before: false }
             priceVersion++
             lastUpdate.value = new Date()
             return

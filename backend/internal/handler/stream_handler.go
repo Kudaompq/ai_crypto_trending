@@ -7,16 +7,16 @@ import (
 	"github.com/kudaompq/ai_trending/backend/internal/service"
 )
 
-var allowedIntervals = map[string]struct{}{
-	"1m": {}, "5m": {}, "15m": {}, "1h": {}, "4h": {}, "1d": {},
-}
-
 type StreamHandler struct {
-	streamService *service.MarketStreamService
-	validator     *service.SymbolValidator
+	streamService interface {
+		Subscribe(symbol, interval string) (<-chan service.MarketEvent, func())
+	}
+	validator *service.SymbolValidator
 }
 
-func NewStreamHandler(streamService *service.MarketStreamService, validator *service.SymbolValidator) *StreamHandler {
+func NewStreamHandler(streamService interface {
+	Subscribe(symbol, interval string) (<-chan service.MarketEvent, func())
+}, validator *service.SymbolValidator) *StreamHandler {
 	return &StreamHandler{streamService: streamService, validator: validator}
 }
 
@@ -28,7 +28,7 @@ func (h *StreamHandler) GetMarketStream(c *gin.Context) {
 	}
 	interval := c.DefaultQuery("interval", "1d")
 
-	if _, ok := allowedIntervals[interval]; !ok {
+	if !service.IsSupportedKlineInterval(interval) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "unsupported_interval", "error": "不支持的时间周期"})
 		return
 	}

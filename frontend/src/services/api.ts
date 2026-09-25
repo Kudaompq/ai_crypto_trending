@@ -15,6 +15,7 @@ export interface KlineData {
   symbol: string
   interval: string
   data: Candle[]
+  has_more_before: boolean
 }
 
 export interface MarketEvent {
@@ -218,9 +219,10 @@ export const api = {
     return response.data.symbol
   },
 
-  async getKlineData(symbol: string, interval: string, limit: number): Promise<KlineData> {
+  async getKlineData(symbol: string, interval: string, limit: number, endTime?: number, signal?: AbortSignal): Promise<KlineData> {
     const response = await axios.get(`${API_BASE_URL}/kline`, {
-      params: { symbol, interval, limit }
+      params: { symbol, interval, limit, ...(endTime === undefined ? {} : { endTime }) },
+      signal
     })
     return response.data
   },

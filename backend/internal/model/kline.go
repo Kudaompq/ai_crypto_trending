@@ -12,7 +12,8 @@ type Candle struct {
 
 // KlineData represents the complete K-line dataset
 type KlineData struct {
-	Symbol   string    `json:"symbol"`
-	Interval string    `json:"interval"`
-	Data     []Candle  `json:"data"`
+	Symbol        string   `json:"symbol"`
+	Interval      string   `json:"interval"`
+	Data          []Candle `json:"data"`
+	HasMoreBefore bool     `json:"has_more_before"`
 }

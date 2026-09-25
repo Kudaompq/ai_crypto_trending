@@ -27,7 +27,7 @@ func NewAnalysisService() *AnalysisService {
 // PerformAnalysis performs complete analysis for a symbol
 func (s *AnalysisService) PerformAnalysis(symbol, interval string, limit int) (*model.AnalysisResult, error) {
 	// Fetch K-line data
-	candles, err := s.binanceRepo.GetKlines(symbol, interval, limit)
+	candles, err := s.binanceRepo.GetKlines(symbol, interval, limit, nil)
 	if err != nil {
 		return nil, err
 	}

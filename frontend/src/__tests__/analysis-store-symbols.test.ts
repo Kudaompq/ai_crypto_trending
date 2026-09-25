@@ -10,7 +10,11 @@ const apiMocks = vi.hoisted(() => ({
     { symbol: 'BTCUSDT', price: 100, change_24h_percent: 0.5, event_time: 1000 },
     { symbol: 'ETHUSDT', price: 200, change_24h_percent: -0.25, event_time: 1000 }
   ], unavailable_symbols: [] })),
-  createWatchlistPriceStream: vi.fn()
+  createWatchlistPriceStream: vi.fn(),
+  getKlineData: vi.fn(),
+  getAnalysis: vi.fn(),
+  errorMessage: vi.fn((_error: unknown, fallback: string) => fallback),
+  invalidSelection: vi.fn(() => false)
 }))
 
 vi.mock('../services/api', () => ({ api: apiMocks }))
@@ -31,6 +35,35 @@ describe('editable preset symbols', () => {
     const store = useAnalysisStore()
     expect(store.availableSymbols.some(item => item.value === 'POLUSDT')).toBe(true)
     expect(store.availableSymbols.some(item => item.value === 'MATICUSDT')).toBe(false)
+  })
+
+  it('does not let a previous period response replace the newly selected market data', async () => {
+    const candle = (timestamp: number) => ({ timestamp, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 })
+    let resolveOldKline!: (value: unknown) => void
+    let resolveOldAnalysis!: (value: unknown) => void
+    let resolveNewKline!: (value: unknown) => void
+    let resolveNewAnalysis!: (value: unknown) => void
+    apiMocks.getKlineData
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOldKline = resolve }))
+      .mockImplementationOnce(() => new Promise(resolve => { resolveNewKline = resolve }))
+    apiMocks.getAnalysis
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOldAnalysis = resolve }))
+      .mockImplementationOnce(() => new Promise(resolve => { resolveNewAnalysis = resolve }))
+    const store = useAnalysisStore()
+
+    const oldRequest = store.fetchAnalysis()
+    store.setInterval('3m')
+    const newRequest = store.fetchAnalysis()
+    resolveNewKline({ symbol: 'ETHUSDT', interval: '3m', data: [candle(3)] })
+    resolveNewAnalysis({ symbol: 'ETHUSDT', interval: '3m' })
+    await newRequest
+    resolveOldKline({ symbol: 'ETHUSDT', interval: '1d', data: [candle(1)] })
+    resolveOldAnalysis({ symbol: 'ETHUSDT', interval: '1d' })
+    await oldRequest
+
+    expect(store.klineData?.interval).toBe('3m')
+    expect(store.klineData?.data[0]?.timestamp).toBe(3)
+    expect(store.analysisResult?.interval).toBe('3m')
   })
 
   it('removes preset symbols persistently and selects a remaining symbol', () => {

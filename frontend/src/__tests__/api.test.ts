@@ -22,6 +22,18 @@ describe('frontend API surface', () => {
     })
   })
 
+  it('passes the exclusive history cursor to the K-line API when requested', async () => {
+    axiosMocks.get.mockResolvedValueOnce({ data: { symbol: 'ETHUSDT', interval: '1h', data: [], has_more_before: false } })
+    const getKlineData = api.getKlineData as unknown as
+      (symbol: string, interval: string, limit: number, endTime?: number) => Promise<unknown>
+
+    await getKlineData('ETHUSDT', '1h', 100, 1_700_000_000_000)
+
+    expect(axiosMocks.get).toHaveBeenCalledWith('/api/kline', {
+      params: { symbol: 'ETHUSDT', interval: '1h', limit: 100, endTime: 1_700_000_000_000 }
+    })
+  })
+
   it('subscribes to named watchlist price and shared stream status events', () => {
     const addEventListener = vi.fn()
     const listeners = new Map<string, (event: MessageEvent) => void>()

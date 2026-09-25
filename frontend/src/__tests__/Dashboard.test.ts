@@ -102,6 +102,7 @@ describe('Dashboard watchlist and market controls', () => {
       }
     })
     mocks.store.setSymbol.mockImplementation((symbol: string) => { mocks.store.symbol = symbol })
+    mocks.store.setInterval.mockImplementation((interval: string) => { mocks.store.interval = interval })
   })
 
   afterEach(() => {
@@ -116,13 +117,15 @@ describe('Dashboard watchlist and market controls', () => {
 
     expect(wrapper.find('.symbol-select').exists()).toBe(false)
     expect(wrapper.findAll('.watchlist-item')).toHaveLength(2)
-    expect(wrapper.find('.tradingview-attribution').attributes('href')).toBe('https://www.tradingview.com/')
+    expect(wrapper.find('.tradingview-attribution').exists()).toBe(false)
     expect(wrapper.text()).toContain('BTC/USDT')
     expect(wrapper.text()).toContain('67,420.5')
     expect(wrapper.text()).toContain('ETH/USDT')
     expect(wrapper.text()).toContain('3,521.75')
     expect(wrapper.find('.watchlist-item.active').text()).toContain('ETH/USDT')
-    expect(wrapper.findAll('.interval-btn')).toHaveLength(4)
+    expect(wrapper.find('.header .interval-buttons').exists()).toBe(false)
+    expect(wrapper.find('.chart-section .interval-buttons').exists()).toBe(true)
+    expect(wrapper.findAll('.chart-section .interval-btn')).toHaveLength(15)
     expect(wrapper.find('.stream-status').exists()).toBe(true)
     expect(wrapper.find('.panels-grid').exists()).toBe(false)
     expect(wrapper.find('.opportunity-button').exists()).toBe(false)
@@ -130,6 +133,7 @@ describe('Dashboard watchlist and market controls', () => {
 
     wrapper.unmount()
     expect(mocks.store.stopWatchlistPriceStream).toHaveBeenCalledOnce()
+    expect(mocks.api.createMarketStream.mock.results[0]?.value.close).toHaveBeenCalledOnce()
   })
 
   it('shows 24h percent changes with zero and positive in green and negative in red', async () => {
@@ -178,6 +182,24 @@ describe('Dashboard watchlist and market controls', () => {
     await deleteButton.trigger('click')
     expect(mocks.store.removeSymbol).toHaveBeenCalledWith('ETHUSDT')
 
+    wrapper.unmount()
+  })
+
+  it('changes to a native Binance interval from controls above the chart and replaces the stream', async () => {
+    const wrapper = shallowMount(Dashboard, {
+      global: { stubs: { 'el-icon': true, 'el-alert': true, Loading: true } }
+    })
+    await flushPromises()
+    const firstStream = mocks.api.createMarketStream.mock.results[0]?.value as { close: ReturnType<typeof vi.fn> }
+
+    const threeMinuteButton = wrapper.find('.chart-section .interval-btn[data-interval="3m"]')
+    expect(threeMinuteButton.exists()).toBe(true)
+    await threeMinuteButton.trigger('click')
+    await flushPromises()
+
+    expect(mocks.store.setInterval).toHaveBeenCalledWith('3m')
+    expect(mocks.api.createMarketStream).toHaveBeenLastCalledWith('ETHUSDT', '3m', expect.any(Function), expect.any(Function))
+    expect(firstStream.close).toHaveBeenCalledOnce()
     wrapper.unmount()
   })
 
