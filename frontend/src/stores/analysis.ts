@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { api, type AnalysisResult, type Candle, type KlineData } from '../services/api'
+import { api, type AnalysisResult, type Candle, type KlineData, type PriceQuote, type PriceStreamStatus } from '../services/api'
 
 const storageKey = 'crypto-trending-custom-symbols'
 const removedPresetsStorageKey = 'crypto-trending-removed-presets'
@@ -12,7 +12,7 @@ const presets = [
     { label: 'XRP/USDT', value: 'XRPUSDT', icon: '✕' },
     { label: 'ADA/USDT', value: 'ADAUSDT', icon: '₳' },
     { label: 'DOGE/USDT', value: 'DOGEUSDT', icon: 'Ð' },
-    { label: 'MATIC/USDT', value: 'MATICUSDT', icon: '⬡' }
+    { label: 'POL/USDT', value: 'POLUSDT', icon: '⬡' }
 ]
 
 function readCustomSymbols(): string[] {
@@ -61,10 +61,16 @@ export const useAnalysisStore = defineStore('analysis', () => {
     const klineData = ref<KlineData | null>(null)
     const analysisResult = ref<AnalysisResult | null>(null)
     const lastUpdate = ref<Date | null>(null)
+    const pricesBySymbol = ref<Record<string, { price: number; eventTime: number }>>({})
+    const unavailableSymbols = ref<string[]>([])
+    const priceStreamState = ref<'connecting' | 'live' | 'reconnecting'>('connecting')
 
     let marketVersion = 0
     let requestVersion = 0
     let priceVersion = 0
+    let priceStream: EventSource | null = null
+    let quoteStreamVersion = 0
+    let streamEventTimes: Record<string, number> = {}
 
     const trendDirection = computed(() => analysisResult.value?.trend.direction || '加载中...')
     const trendStrength = computed(() => analysisResult.value?.trend.strength || 0)
@@ -225,9 +231,63 @@ export const useAnalysisStore = defineStore('analysis', () => {
         lastUpdate.value = new Date()
     }
 
+    async function startWatchlistPriceStream() {
+        const version = ++quoteStreamVersion
+        priceStream?.close()
+        const symbols = availableSymbols.value.map(item => item.value)
+        const symbolSet = new Set(symbols)
+        const receivedSinceSnapshot = new Set<string>()
+        priceStreamState.value = 'connecting'
+        unavailableSymbols.value = []
+
+        priceStream = api.createWatchlistPriceStream(symbols, (event: PriceQuote) => {
+            if (version !== quoteStreamVersion || !symbolSet.has(event.symbol)) return
+            receivedSinceSnapshot.add(event.symbol)
+            const lastStreamTime = streamEventTimes[event.symbol]
+            if (lastStreamTime === undefined || event.event_time >= lastStreamTime) {
+                streamEventTimes[event.symbol] = event.event_time
+                pricesBySymbol.value[event.symbol] = { price: event.price, eventTime: event.event_time }
+            }
+            priceStreamState.value = 'live'
+        }, (status: PriceStreamStatus) => {
+            if (version === quoteStreamVersion) {
+                priceStreamState.value = status.state
+                if (status.unavailable_symbols) unavailableSymbols.value = status.unavailable_symbols
+            }
+        })
+        priceStream.onerror = () => {
+            if (version === quoteStreamVersion) priceStreamState.value = 'reconnecting'
+        }
+
+        try {
+            const snapshot = await api.getWatchlistPrices(symbols)
+            if (version !== quoteStreamVersion) return
+            unavailableSymbols.value = snapshot.unavailable_symbols || []
+            for (const quote of snapshot.prices) {
+                if (!symbolSet.has(quote.symbol) || receivedSinceSnapshot.has(quote.symbol)) continue
+                const previous = pricesBySymbol.value[quote.symbol]
+                const lastStreamTime = streamEventTimes[quote.symbol]
+                if (lastStreamTime === undefined && (!previous || quote.event_time >= previous.eventTime)) {
+                    pricesBySymbol.value[quote.symbol] = { price: quote.price, eventTime: quote.event_time }
+                }
+            }
+        } catch {
+            if (version === quoteStreamVersion && priceStreamState.value === 'connecting') {
+                priceStreamState.value = 'reconnecting'
+            }
+        }
+    }
+
+    function stopWatchlistPriceStream() {
+        quoteStreamVersion++
+        priceStream?.close()
+        priceStream = null
+    }
+
     return {
         availableSymbols, customSymbols, storageWarning, symbol, interval, limit, loading, error, invalidSymbol,
         klineData, analysisResult, lastUpdate, trendDirection, trendStrength, trendColor,
+        pricesBySymbol, unavailableSymbols, priceStreamState, startWatchlistPriceStream, stopWatchlistPriceStream,
         addCustomSymbol, removeSymbol, fetchAnalysis, fetchFallbackKline,
         updateRealtimeCandle, setSymbol, setInterval, setLimit
     }

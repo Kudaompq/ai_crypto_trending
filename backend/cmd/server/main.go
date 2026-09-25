@@ -32,6 +32,8 @@ func main() {
 	log.Println("  GET /api/kline?symbol=ETHUSDT&interval=1d&limit=100")
 	log.Println("  GET /api/analysis?symbol=ETHUSDT&interval=1d&limit=100")
 	log.Println("  GET /api/stream?symbol=ETHUSDT&interval=1h")
+	log.Println("  GET /api/watchlist/prices?symbols=BTCUSDT,ETHUSDT")
+	log.Println("  GET /api/watchlist/stream?symbols=BTCUSDT,ETHUSDT")
 
 	if err := r.Run(address); err != nil {
 		log.Fatal("Failed to start server:", err)
@@ -56,6 +58,7 @@ func newRouter() *gin.Engine {
 	klineHandler := handler.NewKlineHandler(validator)
 	analysisHandler := handler.NewAnalysisHandler(validator)
 	streamHandler := handler.NewStreamHandler(service.NewMarketStreamService(), validator)
+	priceHandler := handler.NewWatchlistPriceHandler(service.NewMarketPriceService(), validator)
 
 	// API routes
 	api := r.Group("/api")
@@ -69,6 +72,8 @@ func newRouter() *gin.Engine {
 
 		// Real-time Binance kline stream (Server-Sent Events)
 		api.GET("/stream", streamHandler.GetMarketStream)
+		api.GET("/watchlist/prices", priceHandler.GetPrices)
+		api.GET("/watchlist/stream", priceHandler.GetStream)
 
 		// Health check
 		api.GET("/health", func(c *gin.Context) {

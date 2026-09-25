@@ -33,6 +33,23 @@ export interface StreamStatus {
   message: string
 }
 
+export interface PriceQuote {
+  symbol: string
+  price: number
+  event_time: number
+}
+
+export interface PriceStreamStatus {
+  state: 'connecting' | 'live' | 'reconnecting'
+  message: string
+  unavailable_symbols?: string[]
+}
+
+export interface PriceSnapshot {
+  prices: PriceQuote[]
+  unavailable_symbols: string[]
+}
+
 export interface TrendAnalysis {
   direction: string
   strength: number
@@ -207,6 +224,13 @@ export const api = {
     return response.data
   },
 
+  async getWatchlistPrices(symbols: string[]): Promise<PriceSnapshot> {
+    const response = await axios.get<PriceSnapshot>(`${API_BASE_URL}/watchlist/prices`, {
+      params: { symbols: symbols.join(',') }
+    })
+    return response.data
+  },
+
   async getAnalysis(symbol: string, interval: string, limit: number): Promise<AnalysisResult> {
     const response = await axios.get(`${API_BASE_URL}/analysis`, {
       params: { symbol, interval, limit }
@@ -232,6 +256,30 @@ export const api = {
     })
     source.addEventListener('status', (message) => {
       onStatus?.(JSON.parse((message as MessageEvent).data) as StreamStatus)
+    })
+    return source
+  },
+
+  createWatchlistPriceStream(
+    symbols: string[],
+    onPrice: (event: PriceQuote) => void,
+    onStatus?: (status: PriceStreamStatus) => void
+  ): EventSource {
+    const params = new URLSearchParams({ symbols: symbols.join(',') })
+    const source = new EventSource(`${API_BASE_URL}/watchlist/stream?${params.toString()}`)
+    source.addEventListener('ready', (message) => {
+      const ready = JSON.parse((message as MessageEvent).data) as {
+        symbols?: string[]
+        unavailable_symbols?: string[]
+      }
+      onStatus?.({ state: 'connecting', message: '正在连接实时行情', unavailable_symbols: ready.unavailable_symbols || [] })
+      if (Array.isArray(ready.symbols) && ready.symbols.length === 0) source.close()
+    })
+    source.addEventListener('price', (message) => {
+      onPrice(JSON.parse((message as MessageEvent).data) as PriceQuote)
+    })
+    source.addEventListener('status', (message) => {
+      onStatus?.(JSON.parse((message as MessageEvent).data) as PriceStreamStatus)
     })
     return source
   }

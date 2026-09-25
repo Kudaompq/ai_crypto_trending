@@ -22,17 +22,6 @@
         </h1>
 
         <div class="controls">
-          <div class="symbol-selector">
-            <select :value="store.symbol" @change="changeSymbol" class="symbol-select" aria-label="选择交易对">
-              <option v-for="sym in store.availableSymbols" :key="sym.value" :value="sym.value">
-                {{ sym.label }}
-              </option>
-            </select>
-            <button class="symbol-action" type="button" @click="showSymbolEditor = !showSymbolEditor" title="添加自选交易对">+</button>
-            <button v-if="store.availableSymbols.length > 1" class="symbol-action" type="button"
-              @click="removeSelectedSymbol" title="删除当前交易对">−</button>
-          </div>
-
           <div class="interval-buttons">
             <button v-for="option in intervalOptions" :key="option.value" class="interval-btn"
               :class="{ active: store.interval === option.value }" @click="changeInterval(option.value)">
@@ -51,14 +40,6 @@
         </div>
       </div>
 
-      <form v-if="showSymbolEditor" class="symbol-editor" @submit.prevent="addSymbol">
-        <input v-model="newSymbol" class="symbol-input" placeholder="输入合约交易对，如 AVAXUSDT"
-          aria-label="自选交易对" :disabled="symbolValidating" />
-        <button class="symbol-action" type="submit" :disabled="symbolValidating">
-          {{ symbolValidating ? '校验中…' : '添加' }}
-        </button>
-        <span v-if="symbolError" class="symbol-error" role="alert">{{ symbolError }}</span>
-      </form>
       <div v-if="store.storageWarning" class="symbol-error" role="alert">{{ store.storageWarning }}</div>
 
       <div class="last-update">
@@ -83,19 +64,59 @@
       style="margin-bottom: 20px" />
 
     <!-- Main Content -->
-    <div v-if="store.analysisResult" class="content">
-      <!-- Simple Chart -->
+    <div class="market-layout">
+      <aside class="watchlist" aria-label="Watchlist">
+        <div class="watchlist-heading">
+          <div>
+            <h2>Watchlist</h2>
+            <span class="watchlist-stream-status" :class="store.priceStreamState">{{ priceStreamStatusText }}</span>
+          </div>
+          <button class="symbol-action" type="button" @click="showSymbolEditor = !showSymbolEditor"
+            title="添加自选交易对" aria-label="添加自选交易对">+</button>
+        </div>
+        <form v-if="showSymbolEditor" class="symbol-editor" @submit.prevent="addSymbol">
+          <input v-model="newSymbol" class="symbol-input" placeholder="如 AVAXUSDT"
+            aria-label="自选交易对" :disabled="symbolValidating" />
+          <button class="symbol-action" type="submit" :disabled="symbolValidating">
+            {{ symbolValidating ? '校验中…' : '添加' }}
+          </button>
+          <span v-if="symbolError" class="symbol-error" role="alert">{{ symbolError }}</span>
+        </form>
+        <div class="watchlist-items">
+          <div v-for="item in store.availableSymbols" :key="item.value" class="watchlist-item"
+            :class="{ active: store.symbol === item.value }" :data-symbol="item.value">
+            <button class="watchlist-select" type="button" :aria-label="`选择 ${item.label}`"
+              @click="selectWatchlistSymbol(item.value)">
+              <div class="watchlist-symbol-info">
+                <strong>{{ item.label }}</strong>
+                <span>{{ item.value }}</span>
+              </div>
+              <div class="watchlist-price-info">
+                <strong>{{ store.unavailableSymbols.includes(item.value)
+                  ? '暂不支持' : formatPrice(store.pricesBySymbol[item.value]?.price) }}</strong>
+              </div>
+            </button>
+            <button v-if="store.availableSymbols.length > 1" class="watchlist-delete" type="button"
+              title="删除交易对" :aria-label="`删除 ${item.label}`" @click="removeSymbol(item.value)">×</button>
+          </div>
+        </div>
+        <a class="tradingview-attribution" href="https://www.tradingview.com/" target="_blank"
+          rel="noopener noreferrer">Charts by TradingView</a>
+      </aside>
+
       <div class="chart-section">
         <SimpleChart v-if="store.klineData" :candles="store.klineData.data"
-          :symbol="store.symbol" :atr="store.analysisResult.indicators.atr" />
+          :symbol="store.symbol" :interval="store.interval" :atr="store.analysisResult?.indicators.atr" />
+        <div v-else class="chart-placeholder">
+          {{ store.loading ? '正在加载 K 线…' : '选择交易对后显示 K 线图' }}
+        </div>
       </div>
-
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useAnalysisStore } from '../stores/analysis'
 import { api } from '../services/api'
 import type { MarketEvent } from '../services/api'
@@ -118,6 +139,11 @@ const streamStatusText = computed(() => ({
   fallback: '备用更新（非实时）',
   unavailable: '行情不可用或已过期'
 })[streamState.value])
+const priceStreamStatusText = computed(() => ({
+  connecting: '报价连接中',
+  live: '实时价格',
+  reconnecting: '价格重连中'
+})[store.priceStreamState])
 let streamStartedAt = 0
 let lastLiveEventAt = 0
 let lastFallbackAttempt = 0
@@ -143,6 +169,10 @@ onMounted(() => {
 
 })
 
+watch(() => store.availableSymbols.map(item => item.value).join(','), () => {
+  void store.startWatchlistPriceStream()
+}, { immediate: true })
+
 onUnmounted(() => {
   marketGeneration++
   if (watchdogTimer) clearInterval(watchdogTimer)
@@ -151,6 +181,7 @@ onUnmounted(() => {
   }
 
   marketStream?.close()
+  store.stopWatchlistPriceStream()
 })
 
 function changeInterval(interval: string) {
@@ -158,8 +189,9 @@ function changeInterval(interval: string) {
   void reloadMarket()
 }
 
-function changeSymbol(event: Event) {
-  store.setSymbol((event.target as HTMLSelectElement).value)
+function selectWatchlistSymbol(symbol: string) {
+  if (store.symbol === symbol) return
+  store.setSymbol(symbol)
   void reloadMarket()
 }
 
@@ -179,9 +211,14 @@ async function addSymbol() {
   }
 }
 
-function removeSelectedSymbol() {
-  store.removeSymbol(store.symbol)
+function removeSymbol(symbol: string) {
+  store.removeSymbol(symbol)
   void reloadMarket()
+}
+
+function formatPrice(price?: number): string {
+  if (price === undefined || !Number.isFinite(price)) return '获取中…'
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 8 }).format(price)
 }
 
 async function handleRefresh() {
@@ -361,13 +398,6 @@ function formatTime(date: Date): string {
   align-items: center;
 }
 
-.symbol-selector {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  position: relative;
-}
-
 .symbol-action {
   padding: 8px 12px;
   border: 1px solid rgba(102, 126, 234, 0.5);
@@ -397,37 +427,6 @@ function formatTime(date: Date): string {
 }
 
 .symbol-error { color: #ff8a80; font-size: 13px; }
-
-.symbol-select {
-  padding: 10px 16px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  outline: none;
-  min-width: 160px;
-}
-
-.symbol-select:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(102, 126, 234, 0.5);
-  transform: translateY(-1px);
-}
-
-.symbol-select:focus {
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
-}
-
-.symbol-select option {
-  background: #1e1e1e;
-  color: #fff;
-  padding: 8px;
-}
 
 .interval-buttons {
   display: flex;
@@ -538,8 +537,89 @@ function formatTime(date: Date): string {
   gap: 24px;
 }
 
+.market-layout {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+  min-height: 520px;
+}
+
+.watchlist {
+  display: flex;
+  flex: 0 0 250px;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #333;
+  border-radius: 12px;
+  background: #171717;
+}
+
+.watchlist-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.watchlist-heading h2 {
+  margin: 0 0 5px;
+  color: #eee;
+  font-size: 18px;
+}
+
+.watchlist-stream-status {
+  color: #999;
+  font-size: 12px;
+}
+
+.watchlist-stream-status.live { color: #26a69a; }
+.watchlist-stream-status.reconnecting { color: #ffa726; }
+
+.watchlist-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+}
+
+.watchlist-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 56px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #ddd;
+  cursor: pointer;
+}
+
+.watchlist-item:hover { background: #242424; }
+.watchlist-item.active { border-color: #667eea; background: rgba(102, 126, 234, .14); }
+.watchlist-select { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.watchlist-symbol-info, .watchlist-price-info { display: flex; flex-direction: column; gap: 4px; }
+.watchlist-symbol-info strong, .watchlist-price-info strong { font-size: 13px; }
+.watchlist-symbol-info span { color: #888; font-size: 11px; }
+.watchlist-price-info { align-items: flex-end; }
+.watchlist-delete { flex-shrink: 0; padding: 0 4px; border: 0; background: transparent; color: #888; cursor: pointer; }
+.watchlist-delete:hover { color: #ff8a80; }
+.tradingview-attribution { margin-top: auto; color: #8f8f8f; font-size: 11px; text-decoration: none; }
+.tradingview-attribution:hover { color: #ddd; }
+
 .chart-section {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
+}
+
+.chart-placeholder {
+  display: grid;
+  min-height: 500px;
+  place-items: center;
+  border: 1px solid #333;
+  border-radius: 12px;
+  color: #999;
+  background: #171717;
 }
 
 @media (max-width: 768px) {
@@ -557,5 +637,12 @@ function formatTime(date: Date): string {
     width: 100%;
     flex-direction: column;
   }
+
+  .market-layout { flex-direction: column; }
+  .watchlist { flex-basis: auto; }
+  .watchlist-items { max-height: none; overflow: visible; }
+  .chart-placeholder { min-height: 360px; }
+  .interval-buttons { width: 100%; justify-content: space-between; }
+  .interval-btn { flex: 1; padding: 8px 4px; font-size: 13px; white-space: nowrap; }
 }
 </style>
