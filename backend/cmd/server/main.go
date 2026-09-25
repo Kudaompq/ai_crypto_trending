@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -12,12 +13,32 @@ import (
 )
 
 func main() {
-	// Initialize database
-	if err := database.InitDB(); err != nil {
-		log.Fatal("Failed to initialize database:", err)
+	if err := database.RemoveLegacyOpportunityDatabase(filepath.Join("data", "opportunities.db")); err != nil {
+		log.Fatalf("Failed to remove legacy trading-opportunity database: %v", err)
 	}
-	defer database.CloseDB()
 
+	r := newRouter()
+
+	// Start server
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	address := ":" + port
+	log.Println("🚀 Server starting on " + address)
+	log.Println("📊 ETH K-line Analysis API")
+	log.Println("Endpoints:")
+	log.Println("  GET /api/health")
+	log.Println("  GET /api/kline?symbol=ETHUSDT&interval=1d&limit=100")
+	log.Println("  GET /api/analysis?symbol=ETHUSDT&interval=1d&limit=100")
+	log.Println("  GET /api/stream?symbol=ETHUSDT&interval=1h")
+
+	if err := r.Run(address); err != nil {
+		log.Fatal("Failed to start server:", err)
+	}
+}
+
+func newRouter() *gin.Engine {
 	// Create Gin router
 	r := gin.Default()
 
@@ -34,7 +55,6 @@ func main() {
 	validator := service.NewSymbolValidator()
 	klineHandler := handler.NewKlineHandler(validator)
 	analysisHandler := handler.NewAnalysisHandler(validator)
-	opportunityHandler := handler.NewOpportunityHandler(validator)
 	streamHandler := handler.NewStreamHandler(service.NewMarketStreamService(), validator)
 
 	// API routes
@@ -46,9 +66,6 @@ func main() {
 
 		// Analysis endpoint
 		api.GET("/analysis", analysisHandler.GetAnalysis)
-
-		// Opportunities endpoint
-		api.GET("/opportunities", opportunityHandler.GetOpportunities)
 
 		// Real-time Binance kline stream (Server-Sent Events)
 		api.GET("/stream", streamHandler.GetMarketStream)
@@ -62,22 +79,5 @@ func main() {
 		})
 	}
 
-	// Start server
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-	address := ":" + port
-	log.Println("🚀 Server starting on " + address)
-	log.Println("📊 ETH K-line Analysis API")
-	log.Println("Endpoints:")
-	log.Println("  GET /api/health")
-	log.Println("  GET /api/kline?symbol=ETHUSDT&interval=1d&limit=100")
-	log.Println("  GET /api/analysis?symbol=ETHUSDT&interval=1d&limit=100")
-	log.Println("  GET /api/opportunities?symbol=ETHUSDT&interval=1h&min_rr=3.0")
-	log.Println("  GET /api/stream?symbol=ETHUSDT&interval=1h")
-
-	if err := r.Run(address); err != nil {
-		log.Fatal("Failed to start server:", err)
-	}
+	return r
 }

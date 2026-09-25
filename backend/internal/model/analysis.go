@@ -160,15 +160,6 @@ type MarketQuality struct {
 	ScoreBreakdown   map[string]float64 `json:"score_breakdown"`
 }
 
-// RiskReward represents risk-reward analysis for a trading opportunity
-type RiskReward struct {
-	Ratio        float64 `json:"ratio"`         // Risk-reward ratio (e.g., 3.0 for 3:1)
-	RiskAmount   float64 `json:"risk_amount"`   // Amount at risk
-	RewardAmount float64 `json:"reward_amount"` // Potential reward
-	RiskPct      float64 `json:"risk_pct"`      // Risk as percentage
-	RewardPct    float64 `json:"reward_pct"`    // Reward as percentage
-}
-
 // AnalysisResult represents the complete analysis result
 type AnalysisResult struct {
 	Symbol              string               `json:"symbol"`
@@ -179,76 +170,4 @@ type AnalysisResult struct {
 	SRLevels            SRLevels             `json:"sr_levels"`
 	CandlestickPatterns []CandlestickPattern `json:"candlestick_patterns"`
 	MarketStructure     MarketStructure      `json:"market_structure"`
-}
-
-// EntryPoint represents the entry point for a trade
-type EntryPoint struct {
-	Price   float64  `json:"price"`
-	Reasons []string `json:"reasons"`
-}
-
-// StopLossInfo represents stop-loss information
-type StopLossInfo struct {
-	Price       float64 `json:"price"`
-	DistancePct float64 `json:"distance_pct"`
-	Method      string  `json:"method"` // "TECHNICAL_LEVEL", "ATR", "PERCENTAGE"
-}
-
-// TakeProfitLevel represents a take-profit target
-type TakeProfitLevel struct {
-	Level            int     `json:"level"`
-	Price            float64 `json:"price"`
-	DistancePct      float64 `json:"distance_pct"`
-	Target           string  `json:"target"`
-	PositionClosePct int     `json:"position_close_pct"`
-}
-
-// RiskRewardInfo represents risk-reward analysis
-type RiskRewardInfo struct {
-	Ratio        float64 `json:"ratio"`
-	RiskAmount   float64 `json:"risk_amount"`
-	RewardAmount float64 `json:"reward_amount"`
-	RiskPct      float64 `json:"risk_pct"`
-	RewardPct    float64 `json:"reward_pct"`
-}
-
-// ConfidenceInfo represents confidence scoring
-type ConfidenceInfo struct {
-	Score   int      `json:"score"`   // 0-100
-	Level   string   `json:"level"`   // "HIGH", "MEDIUM", "LOW"
-	Factors []string `json:"factors"` // Reasons for confidence level
-}
-
-// ValidityInfo represents opportunity validity
-type ValidityInfo struct {
-	ExpiresAt int64  `json:"expires_at"`
-	Status    string `json:"status"` // "ACTIVE", "EXPIRED"
-}
-
-// TradingOpportunity represents a trading opportunity
-type TradingOpportunity struct {
-	ID         string            `json:"id"`
-	Symbol     string            `json:"symbol"`
-	Type       string            `json:"type"`     // "LONG" or "SHORT"
-	Strategy   string            `json:"strategy"` // "SUPPORT_BOUNCE", "BREAKOUT_RETEST", "TREND_CONTINUATION"
-	Timestamp  int64             `json:"timestamp"`
-	Entry      EntryPoint        `json:"entry"`
-	StopLoss   StopLossInfo      `json:"stop_loss"`
-	TakeProfit []TakeProfitLevel `json:"take_profit"`
-	RiskReward RiskRewardInfo    `json:"risk_reward"`
-	Confidence ConfidenceInfo    `json:"confidence"`
-	Validity   ValidityInfo      `json:"validity"`
-}
-
-// OpportunitySummary represents a summary of opportunities
-type OpportunitySummary struct {
-	TotalCount          int     `json:"total_opportunities"`
-	AvgRiskReward       float64 `json:"avg_risk_reward"`
-	HighConfidenceCount int     `json:"high_confidence_count"`
-}
-
-// OpportunitiesResponse represents the API response for opportunities
-type OpportunitiesResponse struct {
-	Opportunities []TradingOpportunity `json:"opportunities"`
-	Summary       OpportunitySummary   `json:"summary"`
 }

@@ -7,7 +7,6 @@ require (
 	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-gonic/gin v1.10.1
 	github.com/markcheno/go-talib v0.0.0-20190307022042-cd53a9264d70
-	github.com/mattn/go-sqlite3 v1.14.32
 )
 
 require (

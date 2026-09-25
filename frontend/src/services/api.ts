@@ -182,70 +182,6 @@ export interface AnalysisResult {
   market_structure: MarketStructure
 }
 
-// Trading Opportunity Types
-export interface EntryPoint {
-  price: number
-  reasons: string[]
-}
-
-export interface StopLossInfo {
-  price: number
-  distance_pct: number
-  method: string
-}
-
-export interface TakeProfitLevel {
-  level: number
-  price: number
-  distance_pct: number
-  target: string
-  position_close_pct: number
-}
-
-export interface RiskRewardInfo {
-  ratio: number
-  risk_amount: number
-  reward_amount: number
-  risk_pct: number
-  reward_pct: number
-}
-
-export interface ConfidenceInfo {
-  score: number
-  level: string
-  factors: string[]
-}
-
-export interface ValidityInfo {
-  expires_at: number
-  status: string
-}
-
-export interface TradingOpportunity {
-  id: string
-  symbol: string
-  type: string
-  strategy: string
-  timestamp: number
-  entry: EntryPoint
-  stop_loss: StopLossInfo
-  take_profit: TakeProfitLevel[]
-  risk_reward: RiskRewardInfo
-  confidence: ConfidenceInfo
-  validity: ValidityInfo
-}
-
-export interface OpportunitySummary {
-  total_opportunities: number
-  avg_risk_reward: number
-  high_confidence_count: number
-}
-
-export interface OpportunitiesResponse {
-  opportunities: TradingOpportunity[]
-  summary: OpportunitySummary
-}
-
 export const api = {
   invalidSelection(err: unknown): boolean {
     return axios.isAxiosError(err) && (err.response?.status === 400 || err.response?.status === 404)
@@ -274,13 +210,6 @@ export const api = {
   async getAnalysis(symbol: string, interval: string, limit: number): Promise<AnalysisResult> {
     const response = await axios.get(`${API_BASE_URL}/analysis`, {
       params: { symbol, interval, limit }
-    })
-    return response.data
-  },
-
-  async getOpportunities(symbol: string, interval: string, minRR: number = 3.0): Promise<OpportunitiesResponse> {
-    const response = await axios.get(`${API_BASE_URL}/opportunities`, {
-      params: { symbol, interval, min_rr: minRR, limit: 100 }
     })
     return response.data
   },

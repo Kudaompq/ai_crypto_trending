@@ -87,59 +87,9 @@
       <!-- Simple Chart -->
       <div class="chart-section">
         <SimpleChart v-if="store.klineData" :candles="store.klineData.data"
-          :resistance="store.analysisResult.sr_levels.resistance" :support="store.analysisResult.sr_levels.support"
-          :symbol="store.symbol" :ema="store.analysisResult.indicators.ema"
-          :fibonacci="store.analysisResult.indicators.fibonacci" :atr="store.analysisResult.indicators.atr" />
+          :symbol="store.symbol" :atr="store.analysisResult.indicators.atr" />
       </div>
 
-      <!-- Analysis Panels -->
-      <div class="panels-grid">
-        <!-- Left Column -->
-        <div class="left-column">
-          <!-- Trading Recommendation -->
-          <TradingRecommendation :analysis="store.analysisResult" />
-
-          <TrendPanel :trend="store.analysisResult.trend" :trend-color="store.trendColor" />
-
-          <IndicatorPanel :indicators="store.analysisResult.indicators" />
-        </div>
-
-        <!-- Right Column -->
-        <div class="right-column">
-          <SRLevelPanel :sr-levels="store.analysisResult.sr_levels" />
-
-          <PatternPanel :patterns="store.analysisResult.candlestick_patterns" />
-
-          <MarketStructurePanel :structure="store.analysisResult.market_structure" />
-        </div>
-      </div>
-    </div>
-
-    <!-- Floating Opportunity Button -->
-    <button class="opportunity-button" @click="openModal" :class="{ 'has-notification': hasNewOpportunities }">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M9 11l3 3L22 4" />
-        <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
-      </svg>
-      <span class="notification-badge" v-if="hasNewOpportunities">{{ opportunityCount }}</span>
-    </button>
-
-    <!-- Opportunity Modal -->
-    <div v-if="showOpportunityModal" class="modal-overlay" @click="closeModal">
-      <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h2>🎯 交易机会</h2>
-          <button class="close-button" @click="closeModal">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <TradingOpportunity :key="`${store.symbol}:${store.interval}`" :symbol="store.symbol" :interval="store.interval" :hide-header="true"
-            @opportunities-updated="onOpportunitiesUpdated" />
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -148,15 +98,8 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useAnalysisStore } from '../stores/analysis'
 import { api } from '../services/api'
-import type { MarketEvent, TradingOpportunity as TradingOpportunityType } from '../services/api'
+import type { MarketEvent } from '../services/api'
 import SimpleChart from '../components/SimpleChart.vue'
-import TradingOpportunity from '../components/TradingOpportunity.vue'
-import TrendPanel from '../components/TrendPanel.vue'
-import IndicatorPanel from '../components/IndicatorPanel.vue'
-import SRLevelPanel from '../components/SRLevelPanel.vue'
-import PatternPanel from '../components/PatternPanel.vue'
-import MarketStructurePanel from '../components/MarketStructurePanel.vue'
-import TradingRecommendation from '../components/TradingRecommendation.vue'
 
 const store = useAnalysisStore()
 const showSymbolEditor = ref(false)
@@ -182,73 +125,6 @@ let fallbackGeneration: number | null = null
 let validatingStreamError = false
 let marketGeneration = 0
 
-// Modal state
-const showOpportunityModal = ref(false)
-const hasNewOpportunities = ref(false)
-const opportunityCount = ref(0)
-
-// Background opportunity monitoring
-let opportunityCheckInterval: number | null = null
-const lastSeenOpportunityIds = ref<Set<string>>(new Set())
-const currentOpportunities = ref<TradingOpportunityType[]>([])
-
-// Background check for new opportunities
-const checkForNewOpportunities = async () => {
-  const generation = marketGeneration
-  const selectedSymbol = store.symbol
-  const selectedInterval = store.interval
-  try {
-    const response = await api.getOpportunities(selectedSymbol, selectedInterval, 2.0)
-    if (generation !== marketGeneration) return
-    const opportunities = response.opportunities
-
-    // Update current opportunities
-    currentOpportunities.value = opportunities
-
-    // Find new opportunities (not in lastSeen set)
-    const newOpportunities = opportunities.filter((opp: TradingOpportunityType) =>
-      !lastSeenOpportunityIds.value.has(opp.id)
-    )
-
-    if (newOpportunities.length > 0) {
-      hasNewOpportunities.value = true
-      opportunityCount.value = newOpportunities.length
-      console.log(`🎯 发现 ${newOpportunities.length} 个新交易机会!`)
-    }
-  } catch (error) {
-    console.error('Failed to check opportunities:', error)
-  }
-}
-
-// Handle opportunities update from modal (when user opens modal)
-const onOpportunitiesUpdated = () => {
-  // This is called when modal is open and data is fetched
-  // We don't need to do anything here as background check handles it
-}
-
-// Open modal
-const openModal = () => {
-  showOpportunityModal.value = true
-}
-
-// Close modal and mark opportunities as seen
-const closeModal = () => {
-  showOpportunityModal.value = false
-
-  // Mark all current opportunities as seen
-  if (currentOpportunities.value.length > 0) {
-    currentOpportunities.value.forEach(opp => {
-      lastSeenOpportunityIds.value.add(opp.id)
-    })
-
-    // Clear notification
-    hasNewOpportunities.value = false
-    opportunityCount.value = 0
-
-    console.log(`✅ 已标记 ${currentOpportunities.value.length} 个机会为已读`)
-  }
-}
-
 const intervalOptions = [
   { label: '15分钟', value: '15m' },
   { label: '1小时', value: '1h' },
@@ -265,7 +141,6 @@ onMounted(() => {
     void handleRefresh()
   }, 60 * 1000)
 
-  opportunityCheckInterval = window.setInterval(checkForNewOpportunities, 30 * 1000)
 })
 
 onUnmounted(() => {
@@ -273,10 +148,6 @@ onUnmounted(() => {
   if (watchdogTimer) clearInterval(watchdogTimer)
   if (refreshTimer) {
     clearInterval(refreshTimer)
-  }
-
-  if (opportunityCheckInterval) {
-    clearInterval(opportunityCheckInterval)
   }
 
   marketStream?.close()
@@ -329,10 +200,6 @@ async function reloadMarket() {
   lastLiveEventAt = 0
   lastFallbackAttempt = 0
   validatingStreamError = false
-  currentOpportunities.value = []
-  lastSeenOpportunityIds.value = new Set()
-  hasNewOpportunities.value = false
-  opportunityCount.value = 0
   await handleRefresh()
   if (generation !== marketGeneration) return
   if (store.invalidSymbol) {
@@ -350,7 +217,6 @@ async function reloadMarket() {
     streamNote.value = store.error || '暂时无法获取行情数据'
   }
   connectMarketStream()
-  await checkForNewOpportunities()
 }
 
 function checkMarketFreshness() {
@@ -393,7 +259,6 @@ function connectMarketStream() {
     const analysisIsStale = Date.now() - lastAnalysisRefresh >= 15_000
     if (event.is_final || analysisIsStale) {
       void handleRefresh()
-      void checkForNewOpportunities()
     }
   }, (status) => {
     if (generation !== marketGeneration || status.symbol !== store.symbol || status.interval !== store.interval) return
@@ -675,209 +540,6 @@ function formatTime(date: Date): string {
 
 .chart-section {
   width: 100%;
-}
-
-.panels-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
-}
-
-.full-width-panel {
-  grid-column: 1 / -1;
-}
-
-.left-column,
-.right-column {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-/* Floating Opportunity Button */
-.opportunity-button {
-  position: fixed;
-  bottom: 40px;
-  right: 40px;
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border: none;
-  color: #fff;
-  cursor: pointer;
-  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
-  transition: all 0.3s ease;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.opportunity-button:hover {
-  transform: translateY(-4px) scale(1.05);
-  box-shadow: 0 12px 32px rgba(102, 126, 234, 0.6);
-}
-
-.opportunity-button.has-notification {
-  animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-
-  0%,
-  100% {
-    box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
-  }
-
-  50% {
-    box-shadow: 0 8px 32px rgba(102, 126, 234, 0.8);
-  }
-}
-
-.notification-badge {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  background: #ef5350;
-  color: #fff;
-  border-radius: 50%;
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 700;
-  border: 2px solid #1a1a2e;
-  animation: bounce 0.5s ease;
-}
-
-@keyframes bounce {
-
-  0%,
-  100% {
-    transform: scale(1);
-  }
-
-  50% {
-    transform: scale(1.2);
-  }
-}
-
-/* Modal Overlay */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2000;
-  animation: fadeIn 0.3s ease;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 1;
-  }
-}
-
-.modal-content {
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-  border-radius: 16px;
-  width: 90%;
-  max-width: 900px;
-  max-height: 85vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  animation: slideUp 0.3s ease;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(40px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 24px 28px;
-  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
-}
-
-.modal-header h2 {
-  margin: 0;
-  font-size: 24px;
-  color: #fff;
-  font-weight: 700;
-}
-
-.close-button {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #fff;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.3s ease;
-}
-
-.close-button:hover {
-  background: rgba(255, 255, 255, 0.1);
-  transform: rotate(90deg);
-}
-
-.modal-body {
-  padding: 24px 28px;
-  overflow-y: auto;
-  flex: 1;
-}
-
-.modal-body::-webkit-scrollbar {
-  width: 8px;
-}
-
-.modal-body::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
-}
-
-.modal-body::-webkit-scrollbar-thumb {
-  background: rgba(102, 126, 234, 0.5);
-  border-radius: 4px;
-}
-
-.modal-body::-webkit-scrollbar-thumb:hover {
-  background: rgba(102, 126, 234, 0.7);
-}
-
-@media (max-width: 1200px) {
-  .panels-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 768px) {

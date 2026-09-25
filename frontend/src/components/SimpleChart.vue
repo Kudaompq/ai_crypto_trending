@@ -9,25 +9,6 @@
       </div>
     </div>
 
-    <div class="price-levels">
-      <div class="levels-row">
-        <div class="level-group resistance-group">
-          <span class="level-title">压力位:</span>
-          <span v-if="topResistance.length === 0" class="no-data">暂无</span>
-          <span v-for="(level, i) in topResistance" :key="'r-' + i" class="level-badge resistance">
-            ${{ level.price.toFixed(2) }}
-          </span>
-        </div>
-        <div class="level-group support-group">
-          <span class="level-title">支撑位:</span>
-          <span v-if="topSupport.length === 0" class="no-data">暂无</span>
-          <span v-for="(level, i) in topSupport" :key="'s-' + i" class="level-badge support">
-            ${{ level.price.toFixed(2) }}
-          </span>
-        </div>
-      </div>
-    </div>
-
     <div class="simple-chart">
       <div class="chart-info">
         <div class="info-item">
@@ -57,39 +38,8 @@
           </div>
         </div>
 
-        <!-- Chart Area with SR Lines -->
+        <!-- Chart Area -->
         <div class="chart-area">
-          <!-- SR Level Lines (no labels) -->
-          <div class="sr-lines">
-            <!-- Resistance Lines -->
-            <div v-for="(level, i) in topResistance" :key="'r-line-' + i" class="sr-line resistance-line"
-              :style="getSRLineStyle(level.price)">
-              <span class="sr-price-label">{{ level.price.toFixed(2) }}</span>
-            </div>
-
-            <!-- Support Lines -->
-            <div v-for="(level, i) in topSupport" :key="'s-line-' + i" class="sr-line support-line"
-              :style="getSRLineStyle(level.price)">
-              <span class="sr-price-label">{{ level.price.toFixed(2) }}</span>
-            </div>
-          </div>
-
-          <!-- EMA Lines - HIDDEN -->
-          <!-- <div class="ema-lines">
-            <div v-for="(ema, i) in emaLines" :key="'ema-' + i" class="ema-line"
-              :style="{ ...ema.style, borderColor: ema.color }">
-              <span class="ema-label" :style="{ color: ema.color }">{{ ema.label }}</span>
-            </div>
-          </div> -->
-
-          <!-- Fibonacci Lines - HIDDEN -->
-          <!-- <div class="fib-lines">
-            <div v-for="(fib, i) in fibLevels" :key="'fib-' + i" class="fib-line"
-              :style="{ ...fib.style, borderColor: fib.color }">
-              <span class="fib-label" :style="{ color: fib.color }">{{ fib.label }} ${{ fib.price.toFixed(2) }}</span>
-            </div>
-          </div> -->
-
           <!-- Candles Display -->
           <div class="candles-display">
             <div v-for="(candle, index) in displayCandles" :key="index" class="candle-bar">
@@ -127,15 +77,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Candle, SRLevel, EMAIndicator, FibonacciLevels, ATRIndicator } from '../services/api'
+import type { Candle, ATRIndicator } from '../services/api'
 
 const props = defineProps<{
   candles: Candle[]
-  resistance?: SRLevel[]
-  support?: SRLevel[]
   symbol?: string
-  ema?: EMAIndicator
-  fibonacci?: FibonacciLevels
   atr?: ATRIndicator
 }>()
 
@@ -153,14 +99,16 @@ const displayCandles = computed(() => {
 
 const currentPrice = computed(() => {
   if (!props.candles || props.candles.length === 0) return 0
-  return props.candles[props.candles.length - 1].close
+  const current = props.candles[props.candles.length - 1]
+  return current?.close ?? 0
 })
 
 const priceChange = computed(() => {
   if (!props.candles || props.candles.length < 2) return 0
-  const current = props.candles[props.candles.length - 1].close
-  const previous = props.candles[props.candles.length - 2].close
-  return ((current - previous) / previous) * 100
+  const current = props.candles[props.candles.length - 1]
+  const previous = props.candles[props.candles.length - 2]
+  if (!current || !previous || previous.close === 0) return 0
+  return ((current.close - previous.close) / previous.close) * 100
 })
 
 const priceClass = computed(() => {
@@ -186,30 +134,6 @@ const totalVolume = computed(() => {
   return displayCandles.value.reduce((sum, c) => sum + c.volume, 0)
 })
 
-const topResistance = computed(() => {
-  if (!props.resistance || props.resistance.length === 0) return []
-
-  // Filter resistance levels that are within the displayed candles' price range
-  const high = highPrice.value
-  const low = lowPrice.value
-
-  return props.resistance
-    .filter(level => level.price >= low && level.price <= high)
-    .slice(0, 5)
-})
-
-const topSupport = computed(() => {
-  if (!props.support || props.support.length === 0) return []
-
-  // Filter support levels that are within the displayed candles' price range
-  const high = highPrice.value
-  const low = lowPrice.value
-
-  return props.support
-    .filter(level => level.price >= low && level.price <= high)
-    .slice(0, 5)
-})
-
 const yAxisLabels = computed(() => {
   if (!displayCandles.value || displayCandles.value.length === 0) return []
   const high = highPrice.value
@@ -232,7 +156,8 @@ const xAxisLabels = computed(() => {
 
   for (let i = 0; i < 6; i++) {
     const index = Math.min(i * step, candles.length - 1)
-    labels.push(formatTime(candles[index].timestamp))
+    const candle = candles[index]
+    if (candle) labels.push(formatTime(candle.timestamp))
   }
 
   return labels
@@ -247,7 +172,10 @@ function formatTime(timestamp: number): string {
 
   // Show date + time for intraday, just date for daily
   if (props.candles && props.candles.length > 0) {
-    const timeDiff = props.candles[props.candles.length - 1].timestamp - props.candles[0].timestamp
+    const first = props.candles[0]
+    const last = props.candles[props.candles.length - 1]
+    if (!first || !last) return `${month}/${day}`
+    const timeDiff = last.timestamp - first.timestamp
     const hoursDiff = timeDiff / (1000 * 60 * 60)
 
     if (hoursDiff < 48) {
@@ -307,77 +235,6 @@ function getLowerWickStyle(candle: Candle) {
   }
 }
 
-function getSRLineStyle(price: number) {
-  const range = highPrice.value - lowPrice.value
-  if (range === 0) return { bottom: '50%' }
-
-  const bottom = ((price - lowPrice.value) / range) * 100
-
-  return {
-    bottom: `${bottom}%`
-  }
-}
-
-// EMA line positions
-const emaLines = computed(() => {
-  if (!props.ema || !displayCandles.value || displayCandles.value.length === 0) return []
-
-  const lines = []
-  const emas = [
-    { value: props.ema.ema9, color: '#00D9FF', label: 'EMA9' },
-    { value: props.ema.ema21, color: '#FFD700', label: 'EMA21' },
-    { value: props.ema.ema50, color: '#FF6B6B', label: 'EMA50' },
-    { value: props.ema.ema200, color: '#9B59B6', label: 'EMA200' }
-  ]
-
-  for (const ema of emas) {
-    if (ema.value > 0) {
-      lines.push({
-        ...ema,
-        style: getSRLineStyle(ema.value)
-      })
-    }
-  }
-
-  return lines
-})
-
-// Fibonacci levels to display
-const fibLevels = computed(() => {
-  if (!props.fibonacci) return []
-
-  const levels = []
-
-  // Key retracement levels
-  const retracementKeys = ['38.2%', '50%', '61.8%']
-  for (const key of retracementKeys) {
-    const price = props.fibonacci.retracement[key]
-    if (price) {
-      levels.push({
-        price,
-        label: `Fib ${key}`,
-        color: '#4A90E2',
-        style: getSRLineStyle(price)
-      })
-    }
-  }
-
-  // Key extension levels
-  const extensionKeys = ['1.272', '1.618']
-  for (const key of extensionKeys) {
-    const price = props.fibonacci.extension[key]
-    if (price) {
-      levels.push({
-        price,
-        label: `Fib ${key}`,
-        color: '#F5A623',
-        style: getSRLineStyle(price)
-      })
-    }
-  }
-
-  return levels
-})
 </script>
 
 <style scoped>
@@ -442,53 +299,6 @@ const fibLevels = computed(() => {
 .current-price .change.negative {
   color: #ef5350;
   background: rgba(239, 83, 80, 0.1);
-}
-
-.price-levels {
-  margin-bottom: 20px;
-}
-
-.levels-row {
-  display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-}
-
-.level-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.level-title {
-  color: #999;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.level-badge {
-  padding: 4px 12px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.level-badge.resistance {
-  background: rgba(239, 83, 80, 0.2);
-  color: #ef5350;
-  border: 1px solid rgba(239, 83, 80, 0.4);
-}
-
-.level-badge.support {
-  background: rgba(38, 166, 154, 0.2);
-  color: #26a69a;
-  border: 1px solid rgba(38, 166, 154, 0.4);
-}
-
-.no-data {
-  color: #666;
-  font-size: 13px;
-  font-style: italic;
 }
 
 .simple-chart {
@@ -559,65 +369,6 @@ const fibLevels = computed(() => {
   /* Space for labels */
 }
 
-.sr-lines {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  /* Cover full candles area */
-  bottom: 0;
-  pointer-events: none;
-  z-index: 15;
-  /* Above candles, below tooltips */
-  overflow: visible;
-  /* Allow labels to show outside */
-}
-
-.sr-line {
-  position: absolute;
-  left: 0;
-  right: 0;
-  /* Full width */
-  height: 0;
-  border-top: 1px solid;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding-right: 10px;
-  /* Space before label */
-}
-
-.resistance-line {
-  border-color: rgba(239, 83, 80, 0.6);
-}
-
-.support-line {
-  border-color: rgba(38, 166, 154, 0.6);
-}
-
-.sr-price-label {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 0;
-  background: transparent;
-  color: #fff;
-  transform: translateY(-50%);
-  white-space: nowrap;
-  pointer-events: none;
-  line-height: 1;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
-  position: relative;
-  z-index: 1;
-}
-
-.resistance-line .sr-price-label {
-  color: rgba(239, 83, 80, 1);
-}
-
-.support-line .sr-price-label {
-  color: rgba(38, 166, 154, 1);
-}
-
 .candles-display {
   position: absolute;
   top: 0;
@@ -631,7 +382,7 @@ const fibLevels = computed(() => {
   background: linear-gradient(to top, #1a1a1a 0%, #1a1a1a 25%, transparent 25%, transparent 50%, #1a1a1a 50%, #1a1a1a 75%, transparent 75%);
   background-size: 100% 25%;
   z-index: 10;
-  /* Above SR lines, allows tooltips to show on top */
+  /* Keeps candle tooltips above the candle bodies. */
 }
 
 .x-axis {
@@ -730,74 +481,4 @@ const fibLevels = computed(() => {
   font-weight: 700;
 }
 
-/* EMA Lines */
-.ema-lines {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  pointer-events: none;
-  z-index: 12;
-  overflow: visible;
-}
-
-.ema-line {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 0;
-  border-top: 2px solid;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding-right: 10px;
-}
-
-.ema-label {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 6px;
-  background: rgba(0, 0, 0, 0.7);
-  border-radius: 3px;
-  transform: translateY(-50%);
-  white-space: nowrap;
-  pointer-events: none;
-}
-
-/* Fibonacci Lines */
-.fib-lines {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  pointer-events: none;
-  z-index: 11;
-  overflow: visible;
-}
-
-.fib-line {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 0;
-  border-top: 1px dashed;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding-right: 10px;
-  opacity: 0.7;
-}
-
-.fib-label {
-  font-size: 9px;
-  font-weight: 600;
-  padding: 1px 5px;
-  background: rgba(0, 0, 0, 0.6);
-  border-radius: 3px;
-  transform: translateY(-50%);
-  white-space: nowrap;
-  pointer-events: none;
-}
 </style>

@@ -21,10 +21,9 @@ func TestSymbolValidationAcrossEndpoints(t *testing.T) {
 	router.GET("/api/symbols/validate", ValidateSymbol(validator))
 	router.GET("/api/kline", NewKlineHandler(validator).GetKline)
 	router.GET("/api/analysis", NewAnalysisHandler(validator).GetAnalysis)
-	router.GET("/api/opportunities", NewOpportunityHandler(validator).GetOpportunities)
 	router.GET("/api/stream", NewStreamHandler(service.NewMarketStreamService(), validator).GetMarketStream)
 
-	for _, path := range []string{"symbols/validate", "kline", "analysis", "opportunities", "stream"} {
+	for _, path := range []string{"symbols/validate", "kline", "analysis", "stream"} {
 		for _, tc := range []struct {
 			symbol string
 			status int
