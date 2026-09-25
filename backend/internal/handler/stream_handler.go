@@ -2,16 +2,10 @@ package handler
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kudaompq/ai_trending/backend/internal/service"
 )
-
-var allowedSymbols = map[string]struct{}{
-	"BTCUSDT": {}, "ETHUSDT": {}, "BNBUSDT": {}, "SOLUSDT": {},
-	"XRPUSDT": {}, "ADAUSDT": {}, "DOGEUSDT": {}, "MATICUSDT": {},
-}
 
 var allowedIntervals = map[string]struct{}{
 	"1m": {}, "5m": {}, "15m": {}, "1h": {}, "4h": {}, "1d": {},
@@ -19,23 +13,23 @@ var allowedIntervals = map[string]struct{}{
 
 type StreamHandler struct {
 	streamService *service.MarketStreamService
+	validator     *service.SymbolValidator
 }
 
-func NewStreamHandler(streamService *service.MarketStreamService) *StreamHandler {
-	return &StreamHandler{streamService: streamService}
+func NewStreamHandler(streamService *service.MarketStreamService, validator *service.SymbolValidator) *StreamHandler {
+	return &StreamHandler{streamService: streamService, validator: validator}
 }
 
 // GetMarketStream handles GET /api/stream using Server-Sent Events.
 func (h *StreamHandler) GetMarketStream(c *gin.Context) {
-	symbol := strings.ToUpper(c.DefaultQuery("symbol", "ETHUSDT"))
-	interval := c.DefaultQuery("interval", "1d")
-
-	if _, ok := allowedSymbols[symbol]; !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported symbol"})
+	symbol, ok := validatedSymbol(c, h.validator)
+	if !ok {
 		return
 	}
+	interval := c.DefaultQuery("interval", "1d")
+
 	if _, ok := allowedIntervals[interval]; !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported interval"})
+		c.JSON(http.StatusBadRequest, gin.H{"code": "unsupported_interval", "error": "不支持的时间周期"})
 		return
 	}
 
@@ -58,7 +52,11 @@ func (h *StreamHandler) GetMarketStream(c *gin.Context) {
 			if !ok {
 				return
 			}
-			c.SSEvent("kline", event)
+			if event.Type == "status" {
+				c.SSEvent("status", gin.H{"symbol": event.Symbol, "interval": event.Interval, "state": event.State, "message": event.Message})
+			} else {
+				c.SSEvent("kline", event)
+			}
 			c.Writer.Flush()
 		}
 	}

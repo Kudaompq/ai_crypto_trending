@@ -14,21 +14,26 @@ type OpportunityHandler struct {
 	binanceRepo        *repository.BinanceRepository
 	analysisService    *service.AnalysisService
 	opportunityService *service.OpportunityService
+	validator          *service.SymbolValidator
 }
 
 // NewOpportunityHandler creates a new opportunity handler
-func NewOpportunityHandler() *OpportunityHandler {
+func NewOpportunityHandler(validator *service.SymbolValidator) *OpportunityHandler {
 	return &OpportunityHandler{
 		binanceRepo:        repository.NewBinanceRepository(),
 		analysisService:    service.NewAnalysisService(),
 		opportunityService: service.NewOpportunityService(),
+		validator:          validator,
 	}
 }
 
 // GetOpportunities handles GET /api/opportunities
 func (h *OpportunityHandler) GetOpportunities(c *gin.Context) {
 	// Parse parameters
-	symbol := c.DefaultQuery("symbol", "ETHUSDT")
+	symbol, ok := validatedSymbol(c, h.validator)
+	if !ok {
+		return
+	}
 	interval := c.DefaultQuery("interval", "1h")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
 	minRR, _ := strconv.ParseFloat(c.DefaultQuery("min_rr", "2.0"), 64)

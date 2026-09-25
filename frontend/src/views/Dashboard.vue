@@ -23,11 +23,14 @@
 
         <div class="controls">
           <div class="symbol-selector">
-            <select v-model="store.symbol" @change="changeSymbol" class="symbol-select">
+            <select :value="store.symbol" @change="changeSymbol" class="symbol-select" aria-label="选择交易对">
               <option v-for="sym in store.availableSymbols" :key="sym.value" :value="sym.value">
                 {{ sym.icon }} {{ sym.label }}
               </option>
             </select>
+            <button class="symbol-action" type="button" @click="showSymbolEditor = !showSymbolEditor" title="添加自选交易对">+</button>
+            <button v-if="store.customSymbols.includes(store.symbol)" class="symbol-action" type="button"
+              @click="removeSelectedSymbol" title="删除当前自选交易对">−</button>
           </div>
 
           <div class="interval-buttons">
@@ -48,11 +51,22 @@
         </div>
       </div>
 
-      <div v-if="store.lastUpdate" class="last-update">
-        <span class="stream-status" :class="{ connected: streamConnected }">
-          {{ streamConnected ? '实时行情已连接' : '实时行情重连中' }}
+      <form v-if="showSymbolEditor" class="symbol-editor" @submit.prevent="addSymbol">
+        <input v-model="newSymbol" class="symbol-input" placeholder="输入合约交易对，如 AVAXUSDT"
+          aria-label="自选交易对" :disabled="symbolValidating" />
+        <button class="symbol-action" type="submit" :disabled="symbolValidating">
+          {{ symbolValidating ? '校验中…' : '添加' }}
+        </button>
+        <span v-if="symbolError" class="symbol-error" role="alert">{{ symbolError }}</span>
+      </form>
+      <div v-if="store.storageWarning" class="symbol-error" role="alert">{{ store.storageWarning }}</div>
+
+      <div class="last-update">
+        <span class="stream-status" :class="streamState">
+          {{ streamStatusText }}
         </span>
-        最后更新: {{ formatTime(store.lastUpdate) }}
+        <span v-if="store.lastUpdate">最近行情: {{ formatTime(store.lastUpdate) }}</span>
+        <span v-if="streamNote" class="stream-note">{{ streamNote }}</span>
       </div>
     </div>
 
@@ -122,7 +136,7 @@
           </button>
         </div>
         <div class="modal-body">
-          <TradingOpportunity :symbol="store.symbol" :interval="store.interval" :hide-header="true"
+          <TradingOpportunity :key="`${store.symbol}:${store.interval}`" :symbol="store.symbol" :interval="store.interval" :hide-header="true"
             @opportunities-updated="onOpportunitiesUpdated" />
         </div>
       </div>
@@ -131,7 +145,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useAnalysisStore } from '../stores/analysis'
 import { api } from '../services/api'
 import type { MarketEvent, TradingOpportunity as TradingOpportunityType } from '../services/api'
@@ -145,10 +159,28 @@ import MarketStructurePanel from '../components/MarketStructurePanel.vue'
 import TradingRecommendation from '../components/TradingRecommendation.vue'
 
 const store = useAnalysisStore()
+const showSymbolEditor = ref(false)
+const newSymbol = ref('')
+const symbolError = ref<string | null>(null)
+const symbolValidating = ref(false)
 let refreshTimer: number | null = null
+let watchdogTimer: number | null = null
 let marketStream: EventSource | null = null
 let lastAnalysisRefresh = 0
-const streamConnected = ref(false)
+const streamState = ref<'connecting' | 'live' | 'fallback' | 'unavailable'>('connecting')
+const streamNote = ref('')
+const streamStatusText = computed(() => ({
+  connecting: '正在连接实时行情',
+  live: '实时更新',
+  fallback: '备用更新（非实时）',
+  unavailable: '行情不可用或已过期'
+})[streamState.value])
+let streamStartedAt = 0
+let lastLiveEventAt = 0
+let lastFallbackAttempt = 0
+let fallbackGeneration: number | null = null
+let validatingStreamError = false
+let marketGeneration = 0
 
 // Modal state
 const showOpportunityModal = ref(false)
@@ -162,8 +194,12 @@ const currentOpportunities = ref<TradingOpportunityType[]>([])
 
 // Background check for new opportunities
 const checkForNewOpportunities = async () => {
+  const generation = marketGeneration
+  const selectedSymbol = store.symbol
+  const selectedInterval = store.interval
   try {
-    const response = await api.getOpportunities(store.symbol, store.interval, 2.0)
+    const response = await api.getOpportunities(selectedSymbol, selectedInterval, 2.0)
+    if (generation !== marketGeneration) return
     const opportunities = response.opportunities
 
     // Update current opportunities
@@ -221,21 +257,20 @@ const intervalOptions = [
 ]
 
 onMounted(() => {
-  void store.fetchAnalysis().then(() => {
-    lastAnalysisRefresh = Date.now()
-    connectMarketStream()
-  })
+  void reloadMarket()
+  watchdogTimer = window.setInterval(checkMarketFreshness, 1000)
 
   // Periodic REST fallback also refreshes the calculated indicators.
   refreshTimer = window.setInterval(() => {
     void handleRefresh()
   }, 60 * 1000)
 
-  checkForNewOpportunities() // Initial check
   opportunityCheckInterval = window.setInterval(checkForNewOpportunities, 30 * 1000)
 })
 
 onUnmounted(() => {
+  marketGeneration++
+  if (watchdogTimer) clearInterval(watchdogTimer)
   if (refreshTimer) {
     clearInterval(refreshTimer)
   }
@@ -252,33 +287,97 @@ function changeInterval(interval: string) {
   void reloadMarket()
 }
 
-function changeSymbol() {
+function changeSymbol(event: Event) {
+  store.setSymbol((event.target as HTMLSelectElement).value)
+  void reloadMarket()
+}
+
+async function addSymbol() {
+  symbolValidating.value = true
+  symbolError.value = null
+  try {
+    const selected = await store.addCustomSymbol(newSymbol.value)
+    newSymbol.value = ''
+    showSymbolEditor.value = false
+    store.setSymbol(selected)
+    await reloadMarket()
+  } catch (err: unknown) {
+    symbolError.value = api.errorMessage(err, '添加交易对失败')
+  } finally {
+    symbolValidating.value = false
+  }
+}
+
+function removeSelectedSymbol() {
+  store.removeCustomSymbol(store.symbol)
   void reloadMarket()
 }
 
 async function handleRefresh() {
+  const generation = marketGeneration
   await store.fetchAnalysis()
-  lastAnalysisRefresh = Date.now()
+  if (generation === marketGeneration) lastAnalysisRefresh = Date.now()
 }
 
 async function reloadMarket() {
+  const generation = ++marketGeneration
   marketStream?.close()
   marketStream = null
-  streamConnected.value = false
+  streamState.value = 'connecting'
+  streamNote.value = ''
+  streamStartedAt = Date.now()
+  lastLiveEventAt = 0
+  lastFallbackAttempt = 0
+  validatingStreamError = false
+  currentOpportunities.value = []
+  lastSeenOpportunityIds.value = new Set()
+  hasNewOpportunities.value = false
+  opportunityCount.value = 0
   await handleRefresh()
+  if (generation !== marketGeneration) return
+  if (store.invalidSymbol) {
+    streamState.value = 'unavailable'
+    streamNote.value = store.error || '该交易对不可用，请选择其他交易对'
+    return
+  }
   connectMarketStream()
   await checkForNewOpportunities()
+}
+
+function checkMarketFreshness() {
+  if (store.invalidSymbol) return
+  const lastEvent = lastLiveEventAt || streamStartedAt
+  if (Date.now() - lastEvent < 15_000) return
+  if (Date.now() - lastFallbackAttempt >= 15_000) void runFallback()
+}
+
+async function runFallback() {
+  if (fallbackGeneration === marketGeneration || store.invalidSymbol) return
+  const generation = marketGeneration
+  const liveAtStart = lastLiveEventAt
+  fallbackGeneration = generation
+  lastFallbackAttempt = Date.now()
+  streamState.value = 'fallback'
+  const success = await store.fetchFallbackKline()
+  if (fallbackGeneration === generation) fallbackGeneration = null
+  if (generation !== marketGeneration || store.invalidSymbol || lastLiveEventAt > liveAtStart) return
+  streamState.value = success ? 'fallback' : 'unavailable'
+  if (!success && !streamNote.value) streamNote.value = '备用行情获取失败'
 }
 
 function connectMarketStream() {
   marketStream?.close()
   const expectedSymbol = store.symbol
   const expectedInterval = store.interval
+  const generation = marketGeneration
 
   marketStream = api.createMarketStream(expectedSymbol, expectedInterval, (event: MarketEvent) => {
-    if (event.symbol !== store.symbol || event.interval !== store.interval) return
+    if (generation !== marketGeneration || event.symbol !== store.symbol || event.interval !== store.interval) return
 
     store.updateRealtimeCandle(event.candle)
+    lastLiveEventAt = Date.now()
+    streamState.value = 'live'
+    streamNote.value = ''
 
     // Price and the active candle update on every event; heavier indicator
     // calculations run at most once every 15 seconds or when a candle closes.
@@ -287,14 +386,28 @@ function connectMarketStream() {
       void handleRefresh()
       void checkForNewOpportunities()
     }
+  }, (status) => {
+    if (generation !== marketGeneration || status.symbol !== store.symbol || status.interval !== store.interval) return
+    if (status.state === 'reconnecting') {
+      streamNote.value = status.message
+      void runFallback()
+    }
   })
 
-  marketStream.onopen = () => {
-    streamConnected.value = true
-  }
   marketStream.onerror = () => {
-    streamConnected.value = false
-    // EventSource reconnects automatically using the same URL.
+    if (generation !== marketGeneration) return
+    streamNote.value = '行情连接中断，正在重试'
+    void runFallback()
+    if (validatingStreamError) return
+    validatingStreamError = true
+    void api.validateSymbol(expectedSymbol).catch((err: unknown) => {
+      if (generation !== marketGeneration || !api.invalidSelection(err)) return
+      marketStream?.close()
+      store.invalidSymbol = true
+      store.error = api.errorMessage(err, '该交易对不可用')
+      streamNote.value = store.error
+      streamState.value = 'unavailable'
+    }).finally(() => { validatingStreamError = false })
   }
 }
 
@@ -341,9 +454,13 @@ function formatTime(date: Date): string {
   background: currentColor;
 }
 
-.stream-status.connected {
+.stream-status.live {
   color: #26a69a;
 }
+
+.stream-status.fallback { color: #ffa726; }
+.stream-status.unavailable { color: #ef5350; }
+.stream-note { margin-left: 12px; color: #aaa; }
 
 .header-content {
   display: flex;
@@ -371,8 +488,41 @@ function formatTime(date: Date): string {
 }
 
 .symbol-selector {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   position: relative;
 }
+
+.symbol-action {
+  padding: 8px 12px;
+  border: 1px solid rgba(102, 126, 234, 0.5);
+  border-radius: 8px;
+  background: rgba(102, 126, 234, 0.15);
+  color: #fff;
+  cursor: pointer;
+}
+
+.symbol-action:disabled { opacity: 0.6; cursor: wait; }
+
+.symbol-editor {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+
+.symbol-input {
+  padding: 9px 12px;
+  min-width: 250px;
+  border: 1px solid #555;
+  border-radius: 8px;
+  background: #242424;
+  color: #fff;
+}
+
+.symbol-error { color: #ff8a80; font-size: 13px; }
 
 .symbol-select {
   padding: 10px 16px;

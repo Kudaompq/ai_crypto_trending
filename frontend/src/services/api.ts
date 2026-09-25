@@ -26,6 +26,13 @@ export interface MarketEvent {
   event_time: number
 }
 
+export interface StreamStatus {
+  symbol: string
+  interval: string
+  state: 'connecting' | 'reconnecting'
+  message: string
+}
+
 export interface TrendAnalysis {
   direction: string
   strength: number
@@ -240,6 +247,23 @@ export interface OpportunitiesResponse {
 }
 
 export const api = {
+  invalidSelection(err: unknown): boolean {
+    return axios.isAxiosError(err) && (err.response?.status === 400 || err.response?.status === 404)
+  },
+  errorMessage(err: unknown, fallback: string): string {
+    if (axios.isAxiosError<{ error?: string }>(err)) {
+      return err.response?.data?.error || fallback
+    }
+    return err instanceof Error ? err.message : fallback
+  },
+
+  async validateSymbol(symbol: string): Promise<string> {
+    const response = await axios.get<{ symbol: string }>(`${API_BASE_URL}/symbols/validate`, {
+      params: { symbol }
+    })
+    return response.data.symbol
+  },
+
   async getKlineData(symbol: string, interval: string, limit: number): Promise<KlineData> {
     const response = await axios.get(`${API_BASE_URL}/kline`, {
       params: { symbol, interval, limit }
@@ -269,12 +293,16 @@ export const api = {
   createMarketStream(
     symbol: string,
     interval: string,
-    onEvent: (event: MarketEvent) => void
+    onEvent: (event: MarketEvent) => void,
+    onStatus?: (status: StreamStatus) => void
   ): EventSource {
     const params = new URLSearchParams({ symbol, interval })
     const source = new EventSource(`${API_BASE_URL}/stream?${params.toString()}`)
     source.addEventListener('kline', (message) => {
       onEvent(JSON.parse((message as MessageEvent).data) as MarketEvent)
+    })
+    source.addEventListener('status', (message) => {
+      onStatus?.(JSON.parse((message as MessageEvent).data) as StreamStatus)
     })
     return source
   }

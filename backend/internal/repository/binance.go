@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"github.com/adshao/go-binance/v2/futures"
 	"github.com/kudaompq/ai_trending/backend/internal/model"
@@ -24,11 +25,13 @@ func NewBinanceRepository() *BinanceRepository {
 
 // GetKlines fetches K-line data from Binance Futures
 func (r *BinanceRepository) GetKlines(symbol, interval string, limit int) ([]model.Candle, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	klines, err := r.client.NewKlinesService().
 		Symbol(symbol).
 		Interval(interval).
 		Limit(limit).
-		Do(context.Background())
+		Do(ctx)
 
 	if err != nil {
 		return nil, err

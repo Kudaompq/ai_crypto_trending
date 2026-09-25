@@ -19,6 +19,8 @@ type MarketEvent struct {
 	Candle    model.Candle `json:"candle"`
 	IsFinal   bool         `json:"is_final"`
 	EventTime int64        `json:"event_time"`
+	State     string       `json:"state,omitempty"`
+	Message   string       `json:"message,omitempty"`
 }
 
 type marketStream struct {
@@ -35,10 +37,11 @@ type marketStream struct {
 type MarketStreamService struct {
 	mu      sync.Mutex
 	streams map[string]*marketStream
+	connect func(string, string, futures.WsKlineHandler, futures.ErrHandler) (chan struct{}, chan struct{}, error)
 }
 
 func NewMarketStreamService() *MarketStreamService {
-	return &MarketStreamService{streams: make(map[string]*marketStream)}
+	return &MarketStreamService{streams: make(map[string]*marketStream), connect: futures.WsKlineServe}
 }
 
 func (s *MarketStreamService) Subscribe(symbol, interval string) (<-chan MarketEvent, func()) {
@@ -86,7 +89,8 @@ func (s *MarketStreamService) Subscribe(symbol, interval string) (<-chan MarketE
 
 func (s *MarketStreamService) run(stream *marketStream) {
 	for {
-		doneC, stopC, err := futures.WsKlineServe(
+		stream.broadcast(MarketEvent{Type: "status", Symbol: stream.symbol, Interval: stream.interval, State: "connecting", Message: "正在连接行情数据源"})
+		doneC, stopC, err := s.connect(
 			stream.symbol,
 			stream.interval,
 			func(event *futures.WsKlineEvent) {
@@ -97,11 +101,13 @@ func (s *MarketStreamService) run(stream *marketStream) {
 			},
 			func(err error) {
 				log.Printf("Binance stream %s:%s disconnected: %v", stream.symbol, stream.interval, err)
+				stream.broadcast(MarketEvent{Type: "status", Symbol: stream.symbol, Interval: stream.interval, State: "reconnecting", Message: "实时行情中断，正在重试"})
 			},
 		)
 
 		if err != nil {
 			log.Printf("Binance stream %s:%s connection failed: %v", stream.symbol, stream.interval, err)
+			stream.broadcast(MarketEvent{Type: "status", Symbol: stream.symbol, Interval: stream.interval, State: "reconnecting", Message: "实时行情连接失败，正在重试"})
 			select {
 			case <-stream.stop:
 				return
@@ -112,7 +118,7 @@ func (s *MarketStreamService) run(stream *marketStream) {
 
 		select {
 		case <-stream.stop:
-			stopC <- struct{}{}
+			close(stopC)
 			return
 		case <-doneC:
 			select {

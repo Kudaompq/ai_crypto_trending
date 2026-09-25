@@ -31,14 +31,16 @@ func main() {
 	}))
 
 	// Initialize handlers
-	klineHandler := handler.NewKlineHandler()
-	analysisHandler := handler.NewAnalysisHandler()
-	opportunityHandler := handler.NewOpportunityHandler()
-	streamHandler := handler.NewStreamHandler(service.NewMarketStreamService())
+	validator := service.NewSymbolValidator()
+	klineHandler := handler.NewKlineHandler(validator)
+	analysisHandler := handler.NewAnalysisHandler(validator)
+	opportunityHandler := handler.NewOpportunityHandler(validator)
+	streamHandler := handler.NewStreamHandler(service.NewMarketStreamService(), validator)
 
 	// API routes
 	api := r.Group("/api")
 	{
+		api.GET("/symbols/validate", handler.ValidateSymbol(validator))
 		// K-line data endpoint
 		api.GET("/kline", klineHandler.GetKline)
 

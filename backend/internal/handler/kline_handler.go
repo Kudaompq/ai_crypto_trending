@@ -11,18 +11,23 @@ import (
 // KlineHandler handles K-line related requests
 type KlineHandler struct {
 	klineService *service.KlineService
+	validator    *service.SymbolValidator
 }
 
 // NewKlineHandler creates a new K-line handler
-func NewKlineHandler() *KlineHandler {
+func NewKlineHandler(validator *service.SymbolValidator) *KlineHandler {
 	return &KlineHandler{
 		klineService: service.NewKlineService(),
+		validator:    validator,
 	}
 }
 
 // GetKline handles GET /api/kline
 func (h *KlineHandler) GetKline(c *gin.Context) {
-	symbol := c.DefaultQuery("symbol", "ETHUSDT")
+	symbol, ok := validatedSymbol(c, h.validator)
+	if !ok {
+		return
+	}
 	interval := c.DefaultQuery("interval", "1d")
 	limitStr := c.DefaultQuery("limit", "100")
 

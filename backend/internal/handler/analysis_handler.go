@@ -11,18 +11,23 @@ import (
 // AnalysisHandler handles analysis related requests
 type AnalysisHandler struct {
 	analysisService *service.AnalysisService
+	validator       *service.SymbolValidator
 }
 
 // NewAnalysisHandler creates a new analysis handler
-func NewAnalysisHandler() *AnalysisHandler {
+func NewAnalysisHandler(validator *service.SymbolValidator) *AnalysisHandler {
 	return &AnalysisHandler{
 		analysisService: service.NewAnalysisService(),
+		validator:       validator,
 	}
 }
 
 // GetAnalysis handles GET /api/analysis
 func (h *AnalysisHandler) GetAnalysis(c *gin.Context) {
-	symbol := c.DefaultQuery("symbol", "ETHUSDT")
+	symbol, ok := validatedSymbol(c, h.validator)
+	if !ok {
+		return
+	}
 	interval := c.DefaultQuery("interval", "1d")
 	limitStr := c.DefaultQuery("limit", "100")
 
