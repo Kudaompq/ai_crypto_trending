@@ -112,16 +112,9 @@
       </aside>
 
       <div class="chart-section">
-        <div class="interval-buttons" role="group" aria-label="K线周期">
-          <button v-for="option in intervalOptions" :key="option.value" class="interval-btn"
-            :data-interval="option.value" :aria-pressed="store.interval === option.value"
-            :class="{ active: store.interval === option.value }" @click="changeInterval(option.value)">
-            {{ option.label }}
-          </button>
-        </div>
         <SimpleChart v-if="store.klineData" :candles="store.klineData.data"
           :symbol="store.symbol" :interval="store.interval" :has-more-before="store.klineData.has_more_before"
-          :atr="store.analysisResult?.indicators.atr" />
+          :symbols="chartSymbols" @selection-change="selectChartSelection" />
         <div v-else class="chart-placeholder">
           {{ store.loading ? '正在加载 K 线…' : '选择交易对后显示 K 线图' }}
         </div>
@@ -136,9 +129,9 @@ import { useAnalysisStore } from '../stores/analysis'
 import { api } from '../services/api'
 import type { MarketEvent } from '../services/api'
 import SimpleChart from '../components/SimpleChart.vue'
-import { BINANCE_KLINE_INTERVALS } from '../services/klineHistory'
 
 const store = useAnalysisStore()
+const chartSymbols = computed(() => store.availableSymbols.map(item => item.value))
 const showSymbolEditor = ref(false)
 const newSymbol = ref('')
 const symbolError = ref<string | null>(null)
@@ -169,13 +162,6 @@ let fallbackGeneration: number | null = null
 let validatingStreamError = false
 let marketGeneration = 0
 
-const intervalLabels: Record<(typeof BINANCE_KLINE_INTERVALS)[number], string> = {
-  '1m': '1分', '3m': '3分', '5m': '5分', '15m': '15分', '30m': '30分',
-  '1h': '1小时', '2h': '2小时', '4h': '4小时', '6h': '6小时', '8h': '8小时', '12h': '12小时',
-  '1d': '1天', '3d': '3天', '1w': '1周', '1M': '1月'
-}
-const intervalOptions = BINANCE_KLINE_INTERVALS.map(value => ({ value, label: intervalLabels[value] }))
-
 onMounted(() => {
   void reloadMarket()
   watchdogTimer = window.setInterval(checkMarketFreshness, 1000)
@@ -202,14 +188,17 @@ onUnmounted(() => {
   store.stopWatchlistPriceStream()
 })
 
-function changeInterval(interval: string) {
-  store.setInterval(interval)
-  void reloadMarket()
-}
-
 function selectWatchlistSymbol(symbol: string) {
   if (store.symbol === symbol) return
   store.setSymbol(symbol)
+  void reloadMarket()
+}
+
+function selectChartSelection(selection: { symbol: string; interval: string }) {
+  const changed = selection.symbol !== store.symbol || selection.interval !== store.interval
+  if (!changed) return
+  if (selection.symbol !== store.symbol) store.setSymbol(selection.symbol)
+  if (selection.interval !== store.interval) store.setInterval(selection.interval)
   void reloadMarket()
 }
 

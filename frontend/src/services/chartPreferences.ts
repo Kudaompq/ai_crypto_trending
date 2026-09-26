@@ -11,6 +11,9 @@ export interface SavedChartDrawing {
   name: string
   points: Array<{ timestamp: number; value: number }>
   styles?: Record<string, unknown>
+  visible?: boolean
+  lock?: boolean
+  mode?: 'normal' | 'weak_magnet' | 'strong_magnet'
 }
 export interface SymbolChartPreferences {
   studies: Partial<Record<ChartStudyName, ChartStudyPreference>>
@@ -26,7 +29,13 @@ export const DEFAULT_STUDY_PREFERENCES: Record<ChartStudyName, ChartStudyPrefere
 }
 
 const studyNames: ChartStudyName[] = ['MA', 'EMA', 'BOLL', 'MACD', 'OPEN_INTEREST']
-const drawingNames = new Set(['horizontalStraightLine', 'segment', 'rayLine', 'parallelStraightLine', 'fibonacciLine'])
+const drawingNames = new Set([
+  'horizontalStraightLine', 'horizontalRayLine', 'horizontalSegment', 'verticalStraightLine', 'verticalRayLine',
+  'verticalSegment', 'straightLine', 'rayLine', 'segment', 'arrow', 'priceLine', 'priceChannelLine',
+  'parallelStraightLine', 'circle', 'rect', 'parallelogram', 'triangle', 'fibonacciLine', 'fibonacciSegment',
+  'fibonacciCircle', 'fibonacciSpiral', 'fibonacciSpeedResistanceFan', 'fibonacciExtension', 'gannBox',
+  'xabcd', 'abcd', 'threeWaves', 'fiveWaves', 'eightWaves', 'anyWaves'
+])
 
 interface ChartPreferencesDocument {
   version: 2
@@ -53,6 +62,9 @@ function emptyPreferences(): SymbolChartPreferences {
 
 function validDrawing(value: unknown): value is SavedChartDrawing {
   if (!isRecord(value) || typeof value.id !== 'string' || typeof value.name !== 'string' || !drawingNames.has(value.name)) return false
+  if (value.visible !== undefined && typeof value.visible !== 'boolean') return false
+  if (value.lock !== undefined && typeof value.lock !== 'boolean') return false
+  if (value.mode !== undefined && value.mode !== 'normal' && value.mode !== 'weak_magnet' && value.mode !== 'strong_magnet') return false
   if (!Array.isArray(value.points) || value.points.length === 0) return false
   return value.points.every(point => isRecord(point) && typeof point.timestamp === 'number' && Number.isFinite(point.timestamp) &&
     typeof point.value === 'number' && Number.isFinite(point.value))

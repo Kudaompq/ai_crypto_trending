@@ -1,80 +1,36 @@
 <template>
   <section class="chart-card">
-    <div class="chart-header">
-      <div>
-        <h3>{{ symbolLabel }} K线图</h3>
-        <span class="chart-interval">{{ interval }}</span>
-      </div>
-      <div v-if="candles.length" class="current-price">
-        <span class="label">当前价格:</span>
-        <strong class="price" :class="priceChange >= 0 ? 'positive' : 'negative'">${{ currentPrice.toFixed(2) }}</strong>
-        <span class="change" :class="priceChange >= 0 ? 'positive' : 'negative'">
-          {{ priceChange >= 0 ? '+' : '' }}{{ priceChange.toFixed(2) }}%
-        </span>
-      </div>
-    </div>
-
-    <div class="chart-summary">
-      <div class="info-item"><span class="label">最高:</span><strong>${{ highPrice.toFixed(2) }}</strong></div>
-      <div class="info-item"><span class="label">最低:</span><strong>${{ lowPrice.toFixed(2) }}</strong></div>
-      <div class="info-item"><span class="label">成交量:</span><strong>{{ totalVolume.toFixed(0) }}</strong></div>
-      <div v-if="atr" class="info-item"><span class="label">ATR({{ atr.period }}):</span><strong>${{ atr.value.toFixed(2) }}</strong></div>
-    </div>
-
-    <div class="chart-toolbar">
-      <button class="chart-tool-button" type="button" aria-label="指标设置"
-        :aria-expanded="showStudySettings" @click="showStudySettings = !showStudySettings">
-        指标设置
-      </button>
-      <div class="drawing-tools" role="group" aria-label="绘图工具">
-        <button v-for="tool in drawingTools" :key="tool.name" class="chart-tool-button" type="button"
-          :aria-label="`绘制${tool.label}`" :aria-pressed="activeDrawingTool === tool.name"
-          @click="startDrawing(tool.name)">
-          {{ tool.label }}
-        </button>
-      </div>
-      <section v-if="showStudySettings" class="study-settings" aria-label="图表指标设置">
-        <div v-for="study in studyOptions" :key="study.name" class="study-setting">
-          <label class="study-toggle">
-            <input type="checkbox" :aria-label="study.label" :checked="studyPreference(study.name).enabled"
-              @change="onStudyToggle(study.name, $event)" />
-            <strong>{{ study.label }}</strong>
-          </label>
-          <div class="study-parameters">
-            <label v-for="(parameter, index) in study.parameters" :key="parameter" class="study-parameter">
-              <span>{{ parameter }}</span>
-              <input type="number" :aria-label="`${study.label} ${parameter}`"
-                :step="study.name === 'BOLL' && index === 1 ? 0.1 : 1"
-                :value="studyPreference(study.name).params[index]"
-                @change="updateStudyParameter(study.name, index, $event)" />
-            </label>
-          </div>
-        </div>
-        <p v-if="studyError" class="study-error" role="alert">{{ studyError }}</p>
-      </section>
-      <div v-if="drawings.length" class="saved-drawings" aria-label="已保存绘图">
-        <span v-for="drawing in drawings" :key="drawing.id" class="saved-drawing">
-          {{ drawingLabel(drawing.name) }}
-          <button type="button" :aria-label="`删除绘图 ${drawing.id}`" @click="removeDrawing(drawing.id)">×</button>
-        </span>
-      </div>
-    </div>
-
-    <div ref="chartHost" class="kline-chart" role="img" :aria-label="`${symbolLabel} ${interval} K线图`"></div>
-    <p v-if="openInterestError" class="history-error" role="alert">
-      {{ openInterestError }}
-      <button type="button" class="chart-tool-button" @click="refreshOpenInterest">重试 OI</button>
+    <div ref="chartHost" class="pro-chart-host" role="img" :aria-label="`${symbol} ${interval} K线图`"></div>
+    <p v-if="historyError" class="chart-message" role="alert">
+      {{ historyError }}
+      <button class="chart-retry" type="button" @click="retryHistory">重试历史行情</button>
     </p>
-    <p v-if="historyError" class="history-error" role="alert">{{ historyError }}</p>
-    <p v-if="chartStorageWarning" class="history-error" role="alert">{{ chartStorageWarning }}</p>
+    <p v-if="openInterestError" class="chart-message" role="alert">
+      {{ openInterestError }}
+      <button class="chart-retry" type="button" @click="refreshOpenInterest">重试 OI</button>
+    </p>
+    <p v-if="studyError" class="chart-message" role="alert">{{ studyError }}</p>
+    <p v-if="chartStorageWarning" class="chart-message" role="alert">{{ chartStorageWarning }}</p>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { dispose, init, registerIndicator, type Chart, type DataLoader, type KLineData } from 'klinecharts'
-import { api, type ATRIndicator, type Candle, type OpenInterestSample } from '../services/api'
-import { KlineHistory, toKlineChartPeriod } from '../services/klineHistory'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { KLineChartPro, loadLocales } from '@klinecharts/pro'
+import type { SymbolInfo } from '@klinecharts/pro'
+import {
+  IndicatorSeries,
+  registerIndicator,
+  type Chart,
+  type Indicator,
+  type IndicatorCreate,
+  type KLineData,
+  type OverlayCreate,
+  type OverlayRemove
+} from 'klinecharts'
+import '@klinecharts/pro/dist/klinecharts-pro.css'
+import { api, type Candle, type OpenInterestSample } from '../services/api'
+import { createBinanceProDatafeed, BINANCE_PRO_PERIODS, type BinanceProPeriod } from '../services/binanceProDatafeed'
 import { mapOpenInterestToBars, openInterestIntervalMilliseconds } from '../services/openInterestSeries'
 import {
   DEFAULT_STUDY_PREFERENCES,
@@ -85,100 +41,78 @@ import {
   type ChartStudyPreference,
   type SavedChartDrawing
 } from '../services/chartPreferences'
+import { persistProDrawings, restoreProOverlays, type CoreOverlaySnapshot } from '../services/proDrawingPreferences'
 
-const studyOptions: Array<{ name: ChartStudyName; label: string; parameters: string[] }> = [
-  { name: 'MA', label: 'MA', parameters: ['周期 1', '周期 2', '周期 3', '周期 4'] },
-  { name: 'EMA', label: 'EMA', parameters: ['周期 1', '周期 2', '周期 3'] },
-  { name: 'BOLL', label: '布林带', parameters: ['周期', '标准差'] },
-  { name: 'MACD', label: 'MACD', parameters: ['快线', '慢线', '信号线'] },
-  { name: 'OPEN_INTEREST', label: 'OI', parameters: [] }
-]
-const drawingTools = [
-  { name: 'horizontalStraightLine', label: '水平线' },
-  { name: 'segment', label: '趋势线' },
-  { name: 'rayLine', label: '射线' },
-  { name: 'parallelStraightLine', label: '平行通道' },
-  { name: 'fibonacciLine', label: '斐波那契' }
-] as const
-type DrawingToolName = typeof drawingTools[number]['name']
+interface OpenInterestIndicatorResult {
+  value: number | null
+}
 
 interface OpenInterestIndicatorExtension {
   samples: OpenInterestSample[]
   interval: string
 }
 
-registerIndicator<{ value: number | null }, number, OpenInterestIndicatorExtension>({
+registerIndicator<OpenInterestIndicatorResult>({
   name: 'OPEN_INTEREST',
   shortName: 'OI',
-  series: 'normal',
+  series: IndicatorSeries.Normal,
   precision: 2,
   calcParams: [],
   shouldOhlc: false,
   shouldFormatBigNumber: true,
   visible: true,
   zLevel: 0,
-  extendData: { samples: [], interval: '' },
-  figures: [{ key: 'value', title: 'OI Value', type: 'line' }],
+  extendData: { samples: [], interval: '' } satisfies OpenInterestIndicatorExtension,
+  figures: [{ key: 'value', title: 'OI Quantity', type: 'line' }],
   minValue: null,
   maxValue: null,
   styles: null,
-  shouldUpdate: (previous, current) => previous.extendData.interval !== current.extendData.interval ||
-    previous.extendData.samples !== current.extendData.samples,
   regenerateFigures: null,
   createTooltipDataSource: null,
   draw: null,
-  calc: (dataList, indicator) => mapOpenInterestToBars(
+  calc: (dataList: KLineData[], indicator: Indicator<OpenInterestIndicatorResult>) => mapOpenInterestToBars(
     dataList,
-    indicator.extendData?.samples ?? [],
+    (indicator.extendData?.samples ?? []) as OpenInterestSample[],
     indicator.extendData?.interval ?? ''
   )
 })
+
+loadLocales('zh-CN', { open_interest: 'OI（未平仓持仓量）' })
+loadLocales('en-US', { open_interest: 'Open Interest' })
 
 const props = withDefaults(defineProps<{
   candles: Candle[]
   symbol?: string
   interval?: string
   hasMoreBefore?: boolean
-  atr?: ATRIndicator
+  symbols?: string[]
 }>(), {
   symbol: 'ETHUSDT',
   interval: '1d',
-  hasMoreBefore: true
+  hasMoreBefore: true,
+  symbols: () => []
 })
+
+const emit = defineEmits<{
+  selectionChange: [selection: { symbol: string; interval: string }]
+}>()
 
 const chartHost = ref<HTMLElement | null>(null)
-const historyError = ref('')
 const chartStorageWarning = ref('')
-const studyError = ref('')
+const historyError = ref('')
 const openInterestError = ref('')
-const showStudySettings = ref(false)
-const studies = ref<Record<ChartStudyName, ChartStudyPreference>>(loadStudyPreferences(props.symbol))
-const drawings = ref<SavedChartDrawing[]>(getChartPreferences(props.symbol).drawings)
-const activeDrawingTool = ref<DrawingToolName | null>(null)
-const symbolLabel = computed(() => props.symbol.replace('USDT', '/USDT'))
-const latestCandle = computed(() => props.candles[props.candles.length - 1])
-const previousCandle = computed(() => props.candles[props.candles.length - 2])
-const currentPrice = computed(() => latestCandle.value?.close ?? 0)
-const priceChange = computed(() => {
-  const previous = previousCandle.value?.close ?? 0
-  return previous ? ((currentPrice.value - previous) / previous) * 100 : 0
-})
-const highPrice = computed(() => props.candles.length ? Math.max(...props.candles.map(candle => candle.high)) : 0)
-const lowPrice = computed(() => props.candles.length ? Math.min(...props.candles.map(candle => candle.low)) : 0)
-const totalVolume = computed(() => props.candles.reduce((sum, candle) => sum + candle.volume, 0))
-
-const history = new KlineHistory((request, signal) =>
-  api.getKlineData(request.symbol, request.interval, request.limit, request.endTime, signal)
-)
-let chart: Chart | null = null
+const studyError = ref('')
+let proChart: KLineChartPro | null = null
+let coreChart: Chart | null = null
+let datafeed: ReturnType<typeof createBinanceProDatafeed> | null = null
 let resizeObserver: ResizeObserver | null = null
-let liveBarCallback: ((bar: KLineData) => void) | null = null
-let lastPublishedCandle: Candle | undefined
 let openInterestController: AbortController | null = null
-let openInterestRequestVersion = 0
-let openInterestRefreshTimer: ReturnType<typeof setInterval> | null = null
+let openInterestVersion = 0
+let openInterestTimer: ReturnType<typeof setTimeout> | null = null
 let drawingPersistTimer: ReturnType<typeof setTimeout> | null = null
-let activeChartSymbol = props.symbol
+let activeDrawingSymbol = props.symbol
+const overlayIds = new Set<string>()
+const studies = ref<Record<ChartStudyName, ChartStudyPreference>>(loadStudyPreferences(props.symbol))
 
 function loadStudyPreferences(symbol: string): Record<ChartStudyName, ChartStudyPreference> {
   const saved = getChartPreferences(symbol).studies
@@ -188,53 +122,123 @@ function loadStudyPreferences(symbol: string): Record<ChartStudyName, ChartStudy
   })) as Record<ChartStudyName, ChartStudyPreference>
 }
 
-function studyPreference(name: ChartStudyName): ChartStudyPreference {
-  return studies.value[name]
+function symbolInfo(ticker: string): SymbolInfo {
+  return {
+    ticker,
+    name: ticker,
+    shortName: ticker.replace(/USDT$/, '/USDT'),
+    exchange: 'Binance',
+    market: 'futures',
+    pricePrecision: 8,
+    volumePrecision: 2
+  }
 }
 
-function persistStudies() {
-  const preferences = getChartPreferences(props.symbol)
-  const saved = saveChartPreferences(props.symbol, { ...preferences, studies: studies.value })
+function periodInfo(interval: string): BinanceProPeriod {
+  const period = BINANCE_PRO_PERIODS.find(item => item.text === interval)
+  if (!period) throw new Error(`Unsupported Binance interval: ${interval}`)
+  return period
+}
+
+function selectedIndicators(names: ChartStudyName[]): string[] {
+  return names.filter(name => studies.value[name].enabled)
+}
+
+function selectionRequested(selection: { symbol: string; interval: string }) {
+  if (selection.symbol !== props.symbol || selection.interval !== props.interval) emit('selectionChange', selection)
+}
+
+function setStudyPreference(name: ChartStudyName, next: ChartStudyPreference) {
+  studies.value = { ...studies.value, [name]: { enabled: next.enabled, params: [...next.params] } }
+  const preferences = getChartPreferences(activeDrawingSymbol)
+  const saved = saveChartPreferences(activeDrawingSymbol, { ...preferences, studies: studies.value })
   chartStorageWarning.value = saved ? '' : '图表设置未能保存到浏览器，刷新后可能丢失'
 }
 
-function cancelOpenInterestRequest() {
-  openInterestRequestVersion++
-  openInterestController?.abort()
-  openInterestController = null
+function validStudyParams(name: ChartStudyName, params: number[]): boolean {
+  const validation = validateChartStudyParameters(name, params)
+  if (!validation.valid) {
+    studyError.value = validation.error || '指标参数无效'
+    return false
+  }
+  studyError.value = ''
+  return true
 }
 
-function drawingLabel(name: string): string {
-  return drawingTools.find(tool => tool.name === name)?.label ?? name
+function indicatorName(value: string | IndicatorCreate): string {
+  return typeof value === 'string' ? value : value.name
 }
 
-function completeOverlayPoints(points: Array<Partial<{ timestamp: number; value: number }>>): SavedChartDrawing['points'] {
+function chartStudyName(name: string): ChartStudyName | null {
+  return name in studies.value ? name as ChartStudyName : null
+}
+
+function installStudyPreferenceBridge(chart: Chart) {
+  const originalCreateIndicator = chart.createIndicator.bind(chart)
+  chart.createIndicator = ((value, isStack, paneOptions, callback) => {
+    const name = indicatorName(value)
+    const studyName = chartStudyName(name)
+    if (studyName) {
+      const requested = typeof value === 'string' ? studies.value[studyName].params : (value.calcParams ?? studies.value[studyName].params)
+      if (!validStudyParams(studyName, requested)) return null
+    }
+    const created = originalCreateIndicator(value, isStack, paneOptions, callback)
+    if (studyName && created) {
+      const requested = typeof value === 'string' ? studies.value[studyName].params : (value.calcParams ?? studies.value[studyName].params)
+      setStudyPreference(studyName, { enabled: true, params: [...requested] })
+      if (studyName === 'OPEN_INTEREST') scheduleOpenInterestRefresh()
+    }
+    return created
+  }) as Chart['createIndicator']
+
+  const originalRemoveIndicator = chart.removeIndicator.bind(chart)
+  chart.removeIndicator = ((paneId, name) => {
+    originalRemoveIndicator(paneId, name)
+    const removed = name ? [chartStudyName(name)].filter((item): item is ChartStudyName => item !== null) : Object.keys(studies.value) as ChartStudyName[]
+    for (const studyName of removed) setStudyPreference(studyName, { ...studies.value[studyName], enabled: false })
+    if (removed.includes('OPEN_INTEREST')) cancelOpenInterestRequest()
+  }) as Chart['removeIndicator']
+
+  const originalOverrideIndicator = chart.overrideIndicator.bind(chart)
+  chart.overrideIndicator = ((override, paneId, callback) => {
+    const name = chartStudyName(override.name)
+    if (name && override.calcParams) {
+      const params = override.calcParams as number[]
+      if (!validStudyParams(name, params)) return
+    }
+    originalOverrideIndicator(override, paneId, callback)
+    if (name && override.calcParams) setStudyPreference(name, { ...studies.value[name], params: [...override.calcParams as number[]] })
+  }) as Chart['overrideIndicator']
+}
+
+function completePoints(points: Array<Partial<{ timestamp: number; value: number }>>): Array<{ timestamp: number; value: number }> {
   return points.flatMap(point => Number.isFinite(point.timestamp) && Number.isFinite(point.value)
     ? [{ timestamp: point.timestamp!, value: point.value! }]
     : [])
 }
 
+function currentOverlays(): CoreOverlaySnapshot[] {
+  if (!coreChart) return []
+  return [...overlayIds].flatMap(id => {
+    const overlay = coreChart?.getOverlayById(id)
+    if (!overlay) return []
+    return [{
+      id: overlay.id,
+      name: overlay.name,
+      points: completePoints(overlay.points),
+      totalStep: overlay.totalStep,
+      styles: overlay.styles as Record<string, unknown> | undefined,
+      visible: overlay.visible,
+      lock: overlay.lock,
+      mode: overlay.mode as SavedChartDrawing['mode']
+    }]
+  })
+}
+
 function saveDrawingsNow() {
   if (drawingPersistTimer !== null) clearTimeout(drawingPersistTimer)
   drawingPersistTimer = null
-  if (!chart) return
-
-  const saved = chart.getOverlays()
-    .filter(overlay => drawingTools.some(tool => tool.name === overlay.name))
-    .flatMap(overlay => {
-      const points = completeOverlayPoints(overlay.points)
-      const requiredPoints = overlay.totalStep > 0 ? overlay.totalStep - 1 : 1
-      if (points.length < requiredPoints) return []
-      return [{
-        id: overlay.id,
-        name: overlay.name,
-        points,
-        ...(overlay.styles && typeof overlay.styles === 'object' ? { styles: overlay.styles as Record<string, unknown> } : {})
-      } satisfies SavedChartDrawing]
-    })
-  drawings.value = saved
-  const preferences = getChartPreferences(activeChartSymbol)
-  const stored = saveChartPreferences(activeChartSymbol, { ...preferences, drawings: saved })
+  const stored = persistProDrawings(activeDrawingSymbol, currentOverlays())
   chartStorageWarning.value = stored ? '' : '图表设置未能保存到浏览器，刷新后可能丢失'
 }
 
@@ -243,282 +247,271 @@ function scheduleDrawingsSave() {
   drawingPersistTimer = setTimeout(saveDrawingsNow, 120)
 }
 
-function drawingCallbacks() {
-  return {
-    onDrawEnd: scheduleDrawingsSave,
-    onPressedMoveEnd: scheduleDrawingsSave,
-    onRemoved: scheduleDrawingsSave
+function trackOverlayCreate(
+  originalCreateOverlay: Chart['createOverlay'],
+  value: string | OverlayCreate | Array<string | OverlayCreate>,
+  paneId?: string
+) {
+  const wrapOne = (item: string | OverlayCreate): string | OverlayCreate => {
+    if (typeof item === 'string') return item
+    const onDrawEnd = item.onDrawEnd
+    const onPressedMoveEnd = item.onPressedMoveEnd
+    const onRemoved = item.onRemoved
+    return {
+      ...item,
+      onDrawEnd: event => {
+        const result = onDrawEnd?.(event) ?? true
+        scheduleDrawingsSave()
+        return result
+      },
+      onPressedMoveEnd: event => {
+        const result = onPressedMoveEnd?.(event) ?? true
+        scheduleDrawingsSave()
+        return result
+      },
+      onRemoved: event => {
+        const result = onRemoved?.(event) ?? true
+        overlayIds.delete(event.overlay.id)
+        scheduleDrawingsSave()
+        return result
+      }
+    }
   }
-}
-
-function restoreDrawings() {
-  if (!chart) return
-  drawings.value = getChartPreferences(activeChartSymbol).drawings
-  for (const drawing of drawings.value) {
-    chart.createOverlay({
-      id: drawing.id,
-      name: drawing.name,
-      points: drawing.points.map(point => ({ ...point })),
-      ...(drawing.styles ? { styles: drawing.styles as never } : {}),
-      ...drawingCallbacks()
-    })
-  }
-}
-
-function startDrawing(name: DrawingToolName) {
-  if (!chart) return
-  activeDrawingTool.value = name
-  chart.createOverlay({ name, ...drawingCallbacks() })
-}
-
-function removeDrawing(id: string) {
-  chart?.removeOverlay({ id })
+  const wrapped = Array.isArray(value) ? value.map(wrapOne) : wrapOne(value)
+  const result = originalCreateOverlay(wrapped, paneId)
+  if (typeof result === 'string') overlayIds.add(result)
+  else if (Array.isArray(result)) result.forEach(id => { if (id) overlayIds.add(id) })
   scheduleDrawingsSave()
+  return result
+}
+
+function installOverlayPreferenceBridge(chart: Chart) {
+  const originalCreateOverlay = chart.createOverlay.bind(chart)
+  chart.createOverlay = ((value, paneId) => {
+    return trackOverlayCreate(originalCreateOverlay, value, paneId)
+  }) as Chart['createOverlay']
+
+  const originalRemoveOverlay = chart.removeOverlay.bind(chart)
+  chart.removeOverlay = ((remove?: string | OverlayRemove) => {
+    originalRemoveOverlay(remove)
+    for (const id of [...overlayIds]) if (!chart.getOverlayById(id)) overlayIds.delete(id)
+    scheduleDrawingsSave()
+  }) as Chart['removeOverlay']
+
+  const originalOverrideOverlay = chart.overrideOverlay.bind(chart)
+  chart.overrideOverlay = ((override) => {
+    originalOverrideOverlay(override)
+    scheduleDrawingsSave()
+  }) as Chart['overrideOverlay']
+}
+
+function restoreDrawings(symbol: string) {
+  if (!coreChart) return
+  for (const id of [...overlayIds]) coreChart.removeOverlay({ id })
+  overlayIds.clear()
+  const drawings = getChartPreferences(symbol).drawings
+  for (const overlay of restoreProOverlays(drawings)) {
+    coreChart.createOverlay(overlay as OverlayCreate)
+  }
+}
+
+function cancelOpenInterestRequest() {
+  openInterestVersion++
+  openInterestController?.abort()
+  openInterestController = null
+}
+
+function scheduleOpenInterestRefresh() {
+  if (openInterestTimer !== null) clearTimeout(openInterestTimer)
+  openInterestTimer = setTimeout(() => {
+    openInterestTimer = null
+    void refreshOpenInterest()
+  }, 0)
 }
 
 async function refreshOpenInterest() {
   cancelOpenInterestRequest()
   openInterestError.value = ''
-  if (!chart || !studies.value.OPEN_INTEREST.enabled) return
+  if (!coreChart || !studies.value.OPEN_INTEREST.enabled) return
 
   const interval = props.interval
   const intervalMs = openInterestIntervalMilliseconds(interval)
-  const candles = history.candles.length ? history.candles : props.candles
-  if (intervalMs === null || candles.length === 0) {
-    chart.overrideIndicator({ name: 'OPEN_INTEREST', extendData: { samples: [], interval } })
+  if (intervalMs === null) {
+    coreChart.overrideIndicator({ name: 'OPEN_INTEREST', extendData: { samples: [], interval } })
+    return
+  }
+  const candles = coreChart.getDataList().length ? coreChart.getDataList() : props.candles
+  if (candles.length === 0) {
+    coreChart.overrideIndicator({ name: 'OPEN_INTEREST', extendData: { samples: [], interval } })
     return
   }
 
   const symbol = props.symbol
-  const version = openInterestRequestVersion
+  const version = openInterestVersion
   const controller = new AbortController()
   openInterestController = controller
   try {
     const result = await api.getOpenInterestData(
-      symbol, interval, 500, candles[0]!.timestamp, candles[candles.length - 1]!.timestamp + intervalMs, controller.signal
+      symbol,
+      interval,
+      500,
+      candles[0]!.timestamp,
+      candles[candles.length - 1]!.timestamp + intervalMs,
+      controller.signal
     )
-    if (controller.signal.aborted || version !== openInterestRequestVersion || symbol !== props.symbol || interval !== props.interval) return
-    chart?.overrideIndicator({ name: 'OPEN_INTEREST', extendData: { samples: result.data, interval } })
+    if (controller.signal.aborted || version !== openInterestVersion || symbol !== props.symbol || interval !== props.interval) return
+    coreChart?.overrideIndicator({ name: 'OPEN_INTEREST', extendData: { samples: result.data, interval } })
   } catch (error: unknown) {
-    if (controller.signal.aborted || version !== openInterestRequestVersion || isAbortError(error)) return
+    if (controller.signal.aborted || version !== openInterestVersion || isAbortError(error)) return
     openInterestError.value = `OI 加载失败：${api.errorMessage(error, '请求失败')}，可重试`
+    coreChart?.overrideIndicator({ name: 'OPEN_INTEREST', extendData: { samples: [], interval } })
   } finally {
     if (openInterestController === controller) openInterestController = null
   }
 }
 
-function applyStudies() {
-  if (!chart) return
-  for (const study of studyOptions) chart.removeIndicator({ name: study.name })
-  for (const study of studyOptions) {
-    const preference = studies.value[study.name]
-    if (!preference.enabled) continue
-    if (study.name === 'MA' || study.name === 'EMA' || study.name === 'BOLL') {
-      chart.createIndicator({ name: study.name, calcParams: [...preference.params], paneId: 'candle_pane' }, true)
-    } else if (study.name === 'OPEN_INTEREST') {
-      chart.createIndicator({ name: study.name, extendData: { samples: [], interval: props.interval } })
-    } else {
-      chart.createIndicator({ name: study.name, calcParams: [...preference.params] })
-    }
-  }
-}
-
-function toggleStudy(name: ChartStudyName, enabled: boolean) {
-  studyError.value = ''
-  studies.value = { ...studies.value, [name]: { ...studies.value[name], enabled } }
-  persistStudies()
-  applyStudies()
-  if (name === 'OPEN_INTEREST') void refreshOpenInterest()
-}
-
-function onStudyToggle(name: ChartStudyName, event: Event) {
-  toggleStudy(name, (event.target as HTMLInputElement).checked)
-}
-
-function updateStudyParameter(name: ChartStudyName, index: number, event: Event) {
-  const input = event.target as HTMLInputElement
-  const current = studies.value[name]
-  const params = [...current.params]
-  params[index] = Number(input.value)
-  const validation = validateChartStudyParameters(name, params)
-  if (!validation.valid) {
-    studyError.value = validation.error || '指标参数无效'
-    input.value = String(current.params[index] ?? '')
-    return
-  }
-  studyError.value = ''
-  studies.value = { ...studies.value, [name]: { ...current, params } }
-  persistStudies()
-  applyStudies()
-}
-
-function toKlineData(candle: Candle): KLineData {
-  return {
-    timestamp: candle.timestamp,
-    open: candle.open,
-    high: candle.high,
-    low: candle.low,
-    close: candle.close,
-    volume: candle.volume
-  }
-}
-
-function sameCandle(left: Candle | undefined, right: Candle | undefined): boolean {
-  return left?.timestamp === right?.timestamp && left?.open === right?.open && left?.high === right?.high &&
-    left?.low === right?.low && left?.close === right?.close && left?.volume === right?.volume
-}
-
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError' ||
-    typeof error === 'object' && error !== null &&
-    ('name' in error) && ((error as { name?: unknown }).name === 'CanceledError')
+    typeof error === 'object' && error !== null && 'name' in error && (error as { name?: unknown }).name === 'CanceledError'
 }
 
-const dataLoader: DataLoader = {
-  getBars: async ({ type, symbol, callback }) => {
-    if (type === 'init') {
-      history.seed(symbol.ticker, props.interval, props.candles, props.hasMoreBefore)
-      historyError.value = ''
-      callback(history.candles.map(toKlineData), { forward: history.hasMoreBefore, backward: false })
-      return
-    }
-    if (type === 'forward') {
-      try {
-        const candles = await history.loadOlder(symbol.ticker, props.interval, 100)
-        historyError.value = ''
-        callback(candles.map(toKlineData), { forward: history.hasMoreBefore, backward: false })
-        if (studies.value.OPEN_INTEREST.enabled) void refreshOpenInterest()
-      } catch (error: unknown) {
-        if (isAbortError(error)) return
-        historyError.value = api.errorMessage(error, '加载更早 K 线失败，可继续拖动重试')
-        // Resolve the chart's in-flight request without advancing the cursor.
-        // KLineChart unlocks its loader and a subsequent drag can retry.
-        callback([], { forward: history.hasMoreBefore, backward: false })
-      }
-      return
-    }
-    callback(history.candles.map(toKlineData), { forward: history.hasMoreBefore, backward: false })
-  },
-  subscribeBar: ({ callback }) => {
-    liveBarCallback = callback
-    lastPublishedCandle = props.candles[props.candles.length - 1]
-  },
-  unsubscribeBar: () => {
-    liveBarCallback = null
-  }
+function retryHistory() {
+  if (!proChart) return
+  historyError.value = ''
+  proChart.setPeriod({ ...proChart.getPeriod() })
 }
 
-watch(() => props.candles, candles => {
-  const latest = candles[candles.length - 1]
-  if (latest && liveBarCallback && !sameCandle(lastPublishedCandle, latest)) {
-    liveBarCallback(toKlineData(latest))
-  }
-  lastPublishedCandle = latest
-}, { deep: true })
-
-watch([() => props.symbol, () => props.interval], ([symbol, interval]) => {
+function syncSymbol(symbol: string) {
+  if (!proChart || proChart.getSymbol().ticker === symbol) return
   saveDrawingsNow()
-  const symbolChanged = symbol !== activeChartSymbol
-  cancelOpenInterestRequest()
-  activeChartSymbol = symbol
+  activeDrawingSymbol = symbol
   studies.value = loadStudyPreferences(symbol)
-  history.seed(symbol, interval, props.candles, props.hasMoreBefore)
-  chart?.setSymbol({ ticker: symbol, pricePrecision: 8, volumePrecision: 2 })
-  chart?.setPeriod(toKlineChartPeriod(interval))
-  chart?.resetData()
-  applyStudies()
-  if (chart && symbolChanged) {
-    chart.removeOverlay()
-    activeDrawingTool.value = null
-    restoreDrawings()
+  proChart.setSymbol(symbolInfo(symbol))
+  restoreDrawings(symbol)
+  scheduleOpenInterestRefresh()
+}
+
+function syncPeriod(interval: string) {
+  if (!proChart || proChart.getPeriod().text === interval) return
+  cancelOpenInterestRequest()
+  proChart.setPeriod(periodInfo(interval))
+  scheduleOpenInterestRefresh()
+}
+
+function setInitialStudyParameters(chart: Chart) {
+  for (const name of ['MA', 'EMA', 'BOLL', 'MACD'] as const) {
+    if (!studies.value[name].enabled) continue
+    if (validStudyParams(name, studies.value[name].params)) {
+      chart.overrideIndicator({ name, calcParams: [...studies.value[name].params] })
+    }
   }
-  void refreshOpenInterest()
-})
+}
 
 onMounted(() => {
   const container = chartHost.value
   if (!container) return
 
-  history.seed(props.symbol, props.interval, props.candles, props.hasMoreBefore)
-  chart = init(container, { styles: 'dark', timezone: 'Asia/Shanghai' })
-  if (!chart) return
-  chart.setSymbol({ ticker: props.symbol, pricePrecision: 8, volumePrecision: 2 })
-  chart.setPeriod(toKlineChartPeriod(props.interval))
-  chart.setScrollEnabled(true)
-  chart.setZoomEnabled(true)
-  chart.setDataLoader(dataLoader)
-  applyStudies()
-  restoreDrawings()
-  void refreshOpenInterest()
-  openInterestRefreshTimer = setInterval(() => {
-    if (studies.value.OPEN_INTEREST.enabled) void refreshOpenInterest()
-  }, 60_000)
+  datafeed = createBinanceProDatafeed({
+    getSupportedSymbols: () => props.symbols.length > 0 ? props.symbols : [props.symbol],
+    fetchHistory: (request, signal) => api.getKlineData(request.symbol, request.interval, request.limit, request.endTime, signal),
+    onSelectionRequest: selectionRequested,
+    onHistoryError: ({ symbol, interval }, error) => {
+      if (symbol === props.symbol && interval === props.interval) historyError.value = `${symbol} ${interval} 历史K线加载失败：${api.errorMessage(error, '请求失败')}`
+    },
+    onHistoryLoaded: ({ symbol, interval }) => {
+      if (symbol === props.symbol && interval === props.interval && studies.value.OPEN_INTEREST.enabled) scheduleOpenInterestRefresh()
+    }
+  })
+
+  proChart = new KLineChartPro({
+    container,
+    symbol: symbolInfo(props.symbol),
+    period: periodInfo(props.interval),
+    periods: BINANCE_PRO_PERIODS,
+    datafeed,
+    locale: 'zh-CN',
+    theme: 'dark',
+    timezone: 'Asia/Shanghai',
+    watermark: '',
+    mainIndicators: selectedIndicators(['MA', 'EMA', 'BOLL']),
+    subIndicators: selectedIndicators(['MACD', 'OPEN_INTEREST']),
+    drawingBarVisible: true
+  })
+
+  coreChart = proChart.getChart()
+  if (!coreChart) {
+    historyError.value = 'K 线图表未能初始化'
+    return
+  }
+  installStudyPreferenceBridge(coreChart)
+  installOverlayPreferenceBridge(coreChart)
+  setInitialStudyParameters(coreChart)
+  activeDrawingSymbol = props.symbol
+  restoreDrawings(props.symbol)
+  scheduleOpenInterestRefresh()
 
   if (typeof ResizeObserver !== 'undefined') {
-    resizeObserver = new ResizeObserver(() => chart?.resize())
+    resizeObserver = new ResizeObserver(() => coreChart?.resize())
     resizeObserver.observe(container)
   }
 })
+
+watch(() => props.symbol, symbol => syncSymbol(symbol))
+watch(() => props.interval, interval => syncPeriod(interval))
+watch(() => {
+  const latest = props.candles[props.candles.length - 1]
+  return [props.symbol, props.interval, latest?.timestamp, latest?.open, latest?.high, latest?.low, latest?.close, latest?.volume]
+}, () => {
+  const candle = props.candles[props.candles.length - 1]
+  if (candle) datafeed?.publishCandle(props.symbol, props.interval, candle)
+}, { flush: 'post' })
 
 onBeforeUnmount(() => {
   saveDrawingsNow()
   if (drawingPersistTimer !== null) clearTimeout(drawingPersistTimer)
   drawingPersistTimer = null
+  if (openInterestTimer !== null) clearTimeout(openInterestTimer)
+  openInterestTimer = null
   cancelOpenInterestRequest()
-  if (openInterestRefreshTimer !== null) clearInterval(openInterestRefreshTimer)
-  openInterestRefreshTimer = null
-  liveBarCallback = null
   resizeObserver?.disconnect()
   resizeObserver = null
-  history.reset(props.symbol, props.interval)
-  if (chart) dispose(chart)
-  chart = null
+  datafeed?.dispose()
+  datafeed = null
+  proChart?.dispose()
+  proChart = null
+  coreChart = null
 })
 </script>
 
 <style scoped>
 .chart-card {
+  min-width: 0;
+  padding: 12px;
   overflow: hidden;
-  padding: 18px;
-  border: 1px solid #333;
-  border-radius: 12px;
-  background: #171717;
-  color: #eee;
+  background: #141414;
+  border: 1px solid #303030;
+  border-radius: 8px;
 }
 
-.chart-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 14px; }
-.chart-header h3 { display: inline; margin: 0; font-size: 18px; }
-.chart-interval { margin-left: 10px; color: #888; font-size: 12px; }
-.current-price { display: flex; align-items: baseline; gap: 8px; }
-.label { color: #999; font-size: 12px; }
-.price, .change { font-size: 14px; }
-.positive { color: #26a69a; }
-.negative { color: #ef5350; }
-.chart-summary { display: flex; gap: 22px; flex-wrap: wrap; margin: 12px 0; }
-.info-item { display: flex; gap: 6px; align-items: baseline; font-size: 12px; }
-.info-item strong { color: #ddd; font-weight: 500; }
-.chart-toolbar { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
-.drawing-tools { display: flex; flex-wrap: wrap; gap: 6px; }
-.chart-tool-button[aria-pressed="true"] { border-color: #d8a900; color: #f0c330; }
-.saved-drawings { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
-.saved-drawing { display: inline-flex; align-items: center; gap: 6px; padding: 3px 7px; border: 1px solid #414141; border-radius: 12px; color: #aaa; font-size: 11px; }
-.saved-drawing button { padding: 0; border: 0; background: transparent; color: #aaa; font-size: 15px; cursor: pointer; }
-.chart-tool-button { padding: 6px 10px; border: 1px solid #414141; border-radius: 6px; background: #202020; color: #ddd; cursor: pointer; }
-.study-settings { display: grid; grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 12px; width: 100%; padding: 12px; border: 1px solid #383838; border-radius: 8px; background: #1d1d1d; }
-.study-setting { min-width: 0; }
-.study-toggle { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; color: #ddd; font-size: 12px; }
-.study-parameters { display: flex; flex-wrap: wrap; gap: 6px; }
-.study-parameter { display: grid; gap: 4px; color: #999; font-size: 10px; }
-.study-parameter input { width: 58px; padding: 4px; border: 1px solid #414141; border-radius: 4px; background: #141414; color: #eee; }
-.study-error { grid-column: 1 / -1; margin: 0; color: #ff8a80; font-size: 12px; }
-.kline-chart { width: 100%; height: 480px; min-width: 0; }
-.history-error { margin: 8px 0 0; color: #ff8a80; font-size: 12px; }
+.pro-chart-host {
+  width: 100%;
+  height: clamp(460px, 68vh, 850px);
+  min-height: 460px;
+}
 
-@media (max-width: 600px) {
-  .chart-card { padding: 12px; }
-  .chart-header { align-items: flex-start; flex-direction: column; }
-  .chart-summary { gap: 10px 16px; }
-  .study-settings { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
-  .kline-chart { height: 380px; }
+.chart-message {
+  margin: 8px 2px 0;
+  color: #e8a44a;
+  font-size: 13px;
+}
+
+.chart-retry {
+  margin-left: 8px;
+  padding: 2px 8px;
+  color: #d9e6ff;
+  background: #292f3a;
+  border: 1px solid #4b5870;
+  border-radius: 4px;
+  cursor: pointer;
 }
 </style>

@@ -26,9 +26,9 @@ export function mapOpenInterestToBars(candles: TimestampedCandle[], samples: Ope
 
   const byBucket = new Map<number, number>()
   for (const sample of samples) {
-    if (!Number.isFinite(sample.timestamp) || !Number.isFinite(sample.value)) continue
+    if (!Number.isFinite(sample.timestamp) || !Number.isFinite(sample.quantity)) continue
     const bucket = Math.floor(sample.timestamp / intervalMs) * intervalMs
-    byBucket.set(bucket, sample.value)
+    byBucket.set(bucket, sample.quantity)
   }
   return candles.map(candle => ({ value: byBucket.get(candle.timestamp) ?? null }))
 }

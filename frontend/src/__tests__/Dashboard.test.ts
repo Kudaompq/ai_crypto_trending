@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, shallowMount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import Dashboard from '../views/Dashboard.vue'
 
 type TestMarketEvent = {
@@ -69,6 +69,24 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../services/api', () => ({ api: mocks.api }))
 vi.mock('../stores/analysis', () => ({ useAnalysisStore: () => mocks.store }))
+vi.mock('../components/SimpleChart.vue', async () => {
+  const { defineComponent, h } = await import('vue')
+  return {
+    default: defineComponent({
+      name: 'SimpleChart',
+      props: ['candles', 'symbol', 'interval', 'hasMoreBefore', 'symbols'],
+      emits: ['selectionChange'],
+      setup(props) {
+        return () => h('div', {
+          class: 'pro-chart-host',
+          'data-symbol': props.symbol,
+          'data-interval': props.interval,
+          'data-symbols': (props.symbols as string[] | undefined)?.join(',')
+        })
+      }
+    })
+  }
+})
 
 describe('Dashboard watchlist and market controls', () => {
   beforeEach(() => {
@@ -112,7 +130,7 @@ describe('Dashboard watchlist and market controls', () => {
   })
 
   it('shows all symbols with live prices in the watchlist and removes the header symbol dropdown', async () => {
-    const wrapper = shallowMount(Dashboard, {
+    const wrapper = mount(Dashboard, {
       global: { stubs: { 'el-icon': true, 'el-alert': true, Loading: true } }
     })
     await flushPromises()
@@ -126,8 +144,8 @@ describe('Dashboard watchlist and market controls', () => {
     expect(wrapper.text()).toContain('3,521.75')
     expect(wrapper.find('.watchlist-item.active').text()).toContain('ETH/USDT')
     expect(wrapper.find('.header .interval-buttons').exists()).toBe(false)
-    expect(wrapper.find('.chart-section .interval-buttons').exists()).toBe(true)
-    expect(wrapper.findAll('.chart-section .interval-btn')).toHaveLength(15)
+    expect(wrapper.find('.chart-section .interval-buttons').exists()).toBe(false)
+    expect(wrapper.find('.chart-section .pro-chart-host').exists()).toBe(true)
     expect(wrapper.find('.stream-status').exists()).toBe(true)
     expect(wrapper.find('.panels-grid').exists()).toBe(false)
     expect(wrapper.find('.opportunity-button').exists()).toBe(false)
@@ -151,7 +169,7 @@ describe('Dashboard watchlist and market controls', () => {
         SOLUSDT: { price: 142.5, change24hPercent: 0, eventTime: 1 }
       }
     })
-    const wrapper = shallowMount(Dashboard, {
+    const wrapper = mount(Dashboard, {
       global: { stubs: { 'el-icon': true, 'el-alert': true, Loading: true } }
     })
 
@@ -167,7 +185,7 @@ describe('Dashboard watchlist and market controls', () => {
   })
 
   it('selects a watchlist symbol and keeps add and delete controls in the watchlist', async () => {
-    const wrapper = shallowMount(Dashboard, {
+    const wrapper = mount(Dashboard, {
       global: { stubs: { 'el-icon': true, 'el-alert': true, Loading: true } }
     })
     await flushPromises()
@@ -188,7 +206,7 @@ describe('Dashboard watchlist and market controls', () => {
   })
 
   it('reorders the watchlist with pointer input without selecting the dragged symbol', async () => {
-    const wrapper = shallowMount(Dashboard, {
+    const wrapper = mount(Dashboard, {
       global: { stubs: { 'el-icon': true, 'el-alert': true, Loading: true } }
     })
     await flushPromises()
@@ -211,16 +229,14 @@ describe('Dashboard watchlist and market controls', () => {
     wrapper.unmount()
   })
 
-  it('changes to a native Binance interval from controls above the chart and replaces the stream', async () => {
-    const wrapper = shallowMount(Dashboard, {
+  it('applies Pro interval selections through Dashboard and replaces the stream', async () => {
+    const wrapper = mount(Dashboard, {
       global: { stubs: { 'el-icon': true, 'el-alert': true, Loading: true } }
     })
     await flushPromises()
     const firstStream = mocks.api.createMarketStream.mock.results[0]?.value as { close: ReturnType<typeof vi.fn> }
 
-    const threeMinuteButton = wrapper.find('.chart-section .interval-btn[data-interval="3m"]')
-    expect(threeMinuteButton.exists()).toBe(true)
-    await threeMinuteButton.trigger('click')
+    wrapper.findComponent({ name: 'SimpleChart' }).vm.$emit('selectionChange', { symbol: 'ETHUSDT', interval: '3m' })
     await flushPromises()
 
     expect(mocks.store.setInterval).toHaveBeenCalledWith('3m')
@@ -230,7 +246,7 @@ describe('Dashboard watchlist and market controls', () => {
   })
 
   it('ignores updates from the previous kline subscription after selecting another symbol', async () => {
-    const wrapper = shallowMount(Dashboard, {
+    const wrapper = mount(Dashboard, {
       global: { stubs: { 'el-icon': true, 'el-alert': true, Loading: true } }
     })
     await flushPromises()

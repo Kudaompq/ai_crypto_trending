@@ -14,7 +14,7 @@ describe('open-interest time-series mapping', () => {
     ]
 
     expect(mapOpenInterestToBars(candles, samples, '5m')).toEqual([
-      { value: 1000 }, { value: null }, { value: 3000 }
+      { value: 10 }, { value: null }, { value: 30 }
     ])
   })
 
@@ -24,6 +24,6 @@ describe('open-interest time-series mapping', () => {
       { timestamp: 600_000, open: 1, high: 1, low: 1, close: 1, volume: 1 }
     ]
     const samples = [{ timestamp: 599_999, quantity: 10, value: 1000 }]
-    expect(mapOpenInterestToBars(candles, samples, '5m')).toEqual([{ value: 1000 }, { value: null }])
+    expect(mapOpenInterestToBars(candles, samples, '5m')).toEqual([{ value: 10 }, { value: null }])
   })
 })
