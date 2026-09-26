@@ -40,6 +40,8 @@ const mocks = vi.hoisted(() => ({
     },
     unavailableSymbols: [],
     priceStreamState: 'live',
+    watchlistReady: true,
+    initializeWatchlist: vi.fn().mockResolvedValue(undefined),
     startWatchlistPriceStream: vi.fn(),
     stopWatchlistPriceStream: vi.fn(),
     storageWarning: null,
@@ -107,6 +109,7 @@ describe('Dashboard watchlist and market controls', () => {
       },
       unavailableSymbols: [],
       priceStreamState: 'live',
+      watchlistReady: true,
       storageWarning: null,
       loading: false,
       error: null,
@@ -127,6 +130,47 @@ describe('Dashboard watchlist and market controls', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('keeps the brand, market status, and GitHub link in one compact header row', async () => {
+    const wrapper = mount(Dashboard, {
+      global: { stubs: { 'el-icon': true, 'el-alert': true, Loading: true } }
+    })
+    await flushPromises()
+
+    const headerContent = wrapper.get('.header-content')
+    expect(headerContent.find('.brand-lockup').exists()).toBe(true)
+    expect(headerContent.find('.header-tools .last-update').exists()).toBe(true)
+    expect(headerContent.find('.header-tools .controls .github-link').exists()).toBe(true)
+    expect(headerContent.find('.brand-kicker').exists()).toBe(false)
+    expect(headerContent.find('.logo-icon').attributes('width')).toBe('32')
+    expect(headerContent.find('.logo-icon').attributes('height')).toBe('32')
+
+    wrapper.unmount()
+  })
+
+  it('waits for server Watchlist initialization before starting market requests', async () => {
+    let resolveInitialization!: () => void
+    mocks.store.watchlistReady = false
+    mocks.store.initializeWatchlist.mockImplementationOnce(() => new Promise<void>(resolve => {
+      resolveInitialization = () => {
+        mocks.store.watchlistReady = true
+        resolve()
+      }
+    }))
+    const wrapper = mount(Dashboard, {
+      global: { stubs: { 'el-icon': true, 'el-alert': true, Loading: true } }
+    })
+    await flushPromises()
+
+    expect(mocks.store.fetchAnalysis).not.toHaveBeenCalled()
+    expect(mocks.api.createMarketStream).not.toHaveBeenCalled()
+
+    resolveInitialization()
+    await flushPromises()
+    expect(mocks.store.fetchAnalysis).toHaveBeenCalledOnce()
+    expect(mocks.api.createMarketStream).toHaveBeenCalledOnce()
+    wrapper.unmount()
   })
 
   it('shows all symbols with live prices in the watchlist and removes the header symbol dropdown', async () => {

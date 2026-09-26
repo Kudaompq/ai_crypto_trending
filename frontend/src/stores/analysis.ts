@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { api, type AnalysisResult, type Candle, type KlineData, type PriceQuote, type PriceStreamStatus } from '../services/api'
 
 const storageKey = 'crypto-trending-custom-symbols'
@@ -58,37 +58,27 @@ export const useAnalysisStore = defineStore('analysis', () => {
     const customSymbols = ref<string[]>(readCustomSymbols())
     const removedPresetSymbols = ref<string[]>(readRemovedPresetSymbols())
     const watchlistOrder = ref(readWatchlistOrder())
-    const unorderedAvailableSymbols = computed(() => {
+    const cachedAvailableSymbols = computed(() => {
         const visiblePresets = presets.filter(item => !removedPresetSymbols.value.includes(item.value))
         const custom = customSymbols.value.map(value => ({ label: value, value, icon: '☆' }))
         const available = [...visiblePresets, ...custom]
-        return available.length > 0 ? available : [presets[0]!]
-    })
-    const availableSymbols = computed(() => {
-        const byValue = new Map(unorderedAvailableSymbols.value.map(item => [item.value, item]))
+        const byValue = new Map(available.map(item => [item.value, item]))
         const orderedValues = watchlistOrder.value.filter(value => byValue.has(value))
-        for (const item of unorderedAvailableSymbols.value) {
+        for (const item of available) {
             if (!orderedValues.includes(item.value)) orderedValues.push(item.value)
         }
         return orderedValues.map(value => byValue.get(value)!)
     })
+    const serverSymbols = ref<string[] | null>(null)
+    const watchlistRevision = ref(0)
+    const availableSymbols = computed(() => {
+        const values = serverSymbols.value ?? cachedAvailableSymbols.value.map(item => item.value)
+        return values.map(value => presets.find(item => item.value === value) ?? { label: value, value, icon: '☆' })
+    })
     const storageWarning = ref<string | null>(null)
-
-    function persistWatchlistOrder() {
-        try {
-            localStorage.setItem(watchlistOrderStorageKey, JSON.stringify(availableSymbols.value.map(item => item.value)))
-            storageWarning.value = null
-        } catch {
-            storageWarning.value = 'Watchlist 顺序未能保存到浏览器，刷新后可能恢复默认顺序'
-        }
-    }
-
-    watch(availableSymbols, symbols => {
-        const normalized = symbols.map(item => item.value)
-        if (normalized.length === watchlistOrder.value.length && normalized.every((value, index) => value === watchlistOrder.value[index])) return
-        watchlistOrder.value = normalized
-        persistWatchlistOrder()
-    }, { immediate: true, flush: 'sync' })
+    const watchlistReady = ref(false)
+    const watchlistSynced = ref(false)
+    let initializationPromise: Promise<void> | null = null
 
     const symbol = ref(availableSymbols.value.find(item => item.value === 'ETHUSDT')?.value ?? availableSymbols.value[0]!.value)
     const interval = ref('1d')
@@ -119,72 +109,125 @@ export const useAnalysisStore = defineStore('analysis', () => {
         return '#ffa726'
     })
 
-    function persistSymbols() {
+    function removeLegacyWatchlistKeys() {
         try {
-            localStorage.setItem(storageKey, JSON.stringify(customSymbols.value))
-            storageWarning.value = null
+            localStorage.removeItem(storageKey)
+            localStorage.removeItem(removedPresetsStorageKey)
+            localStorage.removeItem(watchlistOrderStorageKey)
         } catch {
-            storageWarning.value = '交易对列表未能保存到浏览器，刷新后可能丢失'
+            storageWarning.value = 'Watchlist 已同步，但浏览器旧缓存未能清除'
         }
     }
 
-    function persistRemovedPresets() {
-        try {
-            localStorage.setItem(removedPresetsStorageKey, JSON.stringify(removedPresetSymbols.value))
-            storageWarning.value = null
-        } catch {
-            storageWarning.value = '交易对列表未能保存到浏览器，刷新后可能丢失'
+    function applyWatchlistSnapshot(snapshot: { symbols: string[]; revision: number; legacy_import_pending: boolean }) {
+        const symbols = [...new Set(snapshot.symbols.map(value => value.trim().toUpperCase()).filter(Boolean))]
+        if (symbols.length === 0) throw new Error('服务端返回了空 Watchlist')
+        serverSymbols.value = symbols
+        watchlistRevision.value = snapshot.revision
+        watchlistSynced.value = true
+        customSymbols.value = symbols.filter(value => !presets.some(item => item.value === value))
+        removedPresetSymbols.value = []
+        watchlistOrder.value = symbols
+        if (!symbols.includes(symbol.value)) setSymbol(symbols.includes('ETHUSDT') ? 'ETHUSDT' : symbols[0]!)
+    }
+
+    async function fetchAndApplyWatchlist() {
+        let snapshot = await api.getWatchlist()
+        if (snapshot.legacy_import_pending) {
+            snapshot = await api.importLegacyWatchlist(cachedAvailableSymbols.value.map(item => item.value))
+        }
+        applyWatchlistSnapshot(snapshot)
+        removeLegacyWatchlistKeys()
+    }
+
+    function initializeWatchlist(): Promise<void> {
+        if (initializationPromise) return initializationPromise
+        initializationPromise = (async () => {
+            try {
+                await fetchAndApplyWatchlist()
+                storageWarning.value = null
+            } catch {
+                watchlistSynced.value = false
+                storageWarning.value = 'Watchlist 数据库同步失败，当前显示本地缓存；同步恢复前不能修改列表'
+            } finally {
+                watchlistReady.value = true
+            }
+        })()
+        return initializationPromise
+    }
+
+    function requireSyncedWatchlist() {
+        if (!watchlistReady.value || !watchlistSynced.value || !serverSymbols.value) {
+            throw new Error('Watchlist 尚未与服务端同步，暂时不能修改')
+        }
+    }
+
+    function noteMutationFailure(error: unknown) {
+        const status = (error as { response?: { status?: number } } | null)?.response?.status
+        if (status === undefined || status >= 500) {
+            storageWarning.value = 'Watchlist 未能同步到数据库，本次修改未提交'
         }
     }
 
     async function addCustomSymbol(raw: string): Promise<string> {
+        requireSyncedWatchlist()
         const normalized = raw.trim().toUpperCase()
         if (availableSymbols.value.some(item => item.value === normalized)) {
             throw new Error('该交易对已在列表中')
         }
-        const removedPreset = presets.find(item => item.value === normalized && removedPresetSymbols.value.includes(item.value))
-        if (removedPreset) {
-            removedPresetSymbols.value = removedPresetSymbols.value.filter(value => value !== removedPreset.value)
-            persistRemovedPresets()
-            return removedPreset.value
+
+        try {
+            const snapshot = await api.addWatchlistSymbol(raw)
+            applyWatchlistSnapshot(snapshot)
+            storageWarning.value = null
+            return normalized
+        } catch (error: unknown) {
+            noteMutationFailure(error)
+            throw error
         }
-        const validSymbol = await api.validateSymbol(raw)
-        if (availableSymbols.value.some(item => item.value === validSymbol)) {
-            throw new Error('该交易对已在列表中')
-        }
-        const validatedRemovedPreset = presets.find(item => item.value === validSymbol && removedPresetSymbols.value.includes(item.value))
-        if (validatedRemovedPreset) {
-            removedPresetSymbols.value = removedPresetSymbols.value.filter(value => value !== validatedRemovedPreset.value)
-            persistRemovedPresets()
-            return validatedRemovedPreset.value
-        }
-        customSymbols.value.push(validSymbol)
-        persistSymbols()
-        return validSymbol
     }
 
-    function removeSymbol(value: string) {
+    async function removeSymbol(value: string) {
         if (availableSymbols.value.length <= 1 || !availableSymbols.value.some(item => item.value === value)) return
 
-        if (presets.some(item => item.value === value)) {
-            removedPresetSymbols.value = [...new Set([...removedPresetSymbols.value, value])]
-            persistRemovedPresets()
-        } else {
-            customSymbols.value = customSymbols.value.filter(item => item !== value)
-            persistSymbols()
+        requireSyncedWatchlist()
+        try {
+            const snapshot = await api.removeWatchlistSymbol(value)
+            applyWatchlistSnapshot(snapshot)
+            storageWarning.value = null
+        } catch (error: unknown) {
+            noteMutationFailure(error)
+            throw error
         }
-
-        if (symbol.value === value) setSymbol(availableSymbols.value[0]!.value)
     }
 
-    function reorderSymbols(value: string, targetIndex: number) {
+    async function reorderSymbols(value: string, targetIndex: number) {
         const order = availableSymbols.value.map(item => item.value)
         const sourceIndex = order.indexOf(value)
         if (sourceIndex < 0 || !Number.isInteger(targetIndex) || targetIndex < 0 || targetIndex >= order.length) return
         order.splice(sourceIndex, 1)
         order.splice(Math.min(targetIndex, order.length), 0, value)
-        watchlistOrder.value = order
-        persistWatchlistOrder()
+        if (order.every((item, index) => item === availableSymbols.value[index]?.value)) return
+
+        try {
+            requireSyncedWatchlist()
+            const snapshot = await api.reorderWatchlist(watchlistRevision.value, order)
+            applyWatchlistSnapshot(snapshot)
+            storageWarning.value = null
+        } catch (error: unknown) {
+            const status = (error as { response?: { status?: number } } | null)?.response?.status
+            if (status === 409) {
+                try {
+                    await fetchAndApplyWatchlist()
+                    storageWarning.value = 'Watchlist 已被其他客户端修改，已加载最新列表，请重新排序'
+                } catch {
+                    watchlistSynced.value = false
+                    storageWarning.value = 'Watchlist 排序冲突，且最新列表同步失败'
+                }
+                return
+            }
+            noteMutationFailure(error)
+        }
     }
 
     function resetMarket() {
@@ -341,7 +384,7 @@ export const useAnalysisStore = defineStore('analysis', () => {
     }
 
     return {
-        availableSymbols, customSymbols, storageWarning, symbol, interval, limit, loading, error, invalidSymbol,
+        availableSymbols, customSymbols, storageWarning, watchlistReady, watchlistSynced, initializeWatchlist, symbol, interval, limit, loading, error, invalidSymbol,
         klineData, analysisResult, lastUpdate, trendDirection, trendStrength, trendColor,
         pricesBySymbol, unavailableSymbols, priceStreamState, startWatchlistPriceStream, stopWatchlistPriceStream,
         addCustomSymbol, removeSymbol, fetchAnalysis, fetchFallbackKline,

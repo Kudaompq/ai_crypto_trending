@@ -3,45 +3,50 @@
     <!-- Header -->
     <div class="header">
       <div class="header-content">
-        <h1 class="title">
-          <svg width="40" height="40" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"
-            class="logo-icon">
-            <rect width="64" height="64" rx="16" fill="url(#paint0_linear)" />
-            <path d="M12 44L24 32L32 40L52 20" stroke="white" stroke-width="4" stroke-linecap="round"
+        <div class="brand-lockup">
+          <svg width="32" height="32" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"
+            class="logo-icon" aria-hidden="true">
+            <rect width="64" height="64" rx="18" fill="url(#originx-mark-gradient)" />
+            <path d="M13 43L24 32L32 40L51 21" stroke="white" stroke-width="3.5" stroke-linecap="round"
               stroke-linejoin="round" />
-            <path d="M52 20V30" stroke="white" stroke-width="4" stroke-linecap="round" />
-            <path d="M52 20H42" stroke="white" stroke-width="4" stroke-linecap="round" />
+            <path d="M51 21V29M51 21H43" stroke="white" stroke-width="3.5" stroke-linecap="round"
+              stroke-linejoin="round" />
+            <circle cx="51" cy="21" r="3" fill="#DDFBFF" />
             <defs>
-              <linearGradient id="paint0_linear" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
-                <stop stop-color="#4F46E5" />
-                <stop offset="1" stop-color="#7C3AED" />
+              <linearGradient id="originx-mark-gradient" x1="7" y1="5" x2="60" y2="62" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#3278B8" />
+                <stop offset="1" stop-color="#5E55D8" />
               </linearGradient>
             </defs>
           </svg>
-          加密货币趋势分析系统
-        </h1>
+          <div class="brand-copy">
+            <h1 class="title">Originx</h1>
+          </div>
+        </div>
 
-        <div class="controls">
-          <!-- GitHub Link -->
-          <a href="https://github.com/kudaompq" target="_blank" rel="noopener noreferrer" class="github-link"
-            title="GitHub">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <path
-                d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
-            </svg>
-          </a>
+        <div class="header-tools">
+          <div class="last-update">
+            <span class="stream-status" :class="streamState">
+              {{ streamStatusText }}
+            </span>
+            <span v-if="store.lastUpdate">最近行情: {{ formatTime(store.lastUpdate) }}</span>
+            <span v-if="streamNote" class="stream-note">{{ streamNote }}</span>
+          </div>
+          <div class="controls">
+            <!-- GitHub Link -->
+            <a href="https://github.com/kudaompq" target="_blank" rel="noopener noreferrer" class="github-link"
+              title="GitHub" aria-label="GitHub">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <path
+                  d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+              </svg>
+              <span>GitHub</span>
+            </a>
+          </div>
         </div>
       </div>
 
       <div v-if="store.storageWarning" class="symbol-error" role="alert">{{ store.storageWarning }}</div>
-
-      <div class="last-update">
-        <span class="stream-status" :class="streamState">
-          {{ streamStatusText }}
-        </span>
-        <span v-if="store.lastUpdate">最近行情: {{ formatTime(store.lastUpdate) }}</span>
-        <span v-if="streamNote" class="stream-note">{{ streamNote }}</span>
-      </div>
     </div>
 
     <!-- Loading State -->
@@ -64,13 +69,13 @@
             <h2>Watchlist</h2>
             <span class="watchlist-stream-status" :class="store.priceStreamState">{{ priceStreamStatusText }}</span>
           </div>
-          <button class="symbol-action" type="button" @click="showSymbolEditor = !showSymbolEditor"
+          <button class="symbol-action" type="button" :disabled="!store.watchlistReady" @click="showSymbolEditor = !showSymbolEditor"
             title="添加自选交易对" aria-label="添加自选交易对">+</button>
         </div>
         <form v-if="showSymbolEditor" class="symbol-editor" @submit.prevent="addSymbol">
           <input v-model="newSymbol" class="symbol-input" placeholder="如 AVAXUSDT"
-            aria-label="自选交易对" :disabled="symbolValidating" />
-          <button class="symbol-action" type="submit" :disabled="symbolValidating">
+            aria-label="自选交易对" :disabled="!store.watchlistReady || symbolValidating" />
+          <button class="symbol-action" type="submit" :disabled="!store.watchlistReady || symbolValidating">
             {{ symbolValidating ? '校验中…' : '添加' }}
           </button>
           <span v-if="symbolError" class="symbol-error" role="alert">{{ symbolError }}</span>
@@ -87,10 +92,10 @@
             @pointerenter="updateWatchlistDragTarget(item.value, $event)"
             @pointermove="updateWatchlistDragTarget(item.value, $event)"
             @pointerup="finishWatchlistDrag(item.value, $event)" @pointercancel="cancelWatchlistDrag">
-            <button class="watchlist-drag-handle" type="button" title="拖动调整顺序"
+            <button class="watchlist-drag-handle" type="button" title="拖动调整顺序" :disabled="!store.watchlistReady"
               :aria-label="`拖动 ${item.label} 调整顺序`"
               @pointerdown.stop="beginWatchlistDrag(item.value, $event)">⠿</button>
-            <button class="watchlist-select" type="button" :aria-label="`选择 ${item.label}`"
+            <button class="watchlist-select" type="button" :disabled="!store.watchlistReady" :aria-label="`选择 ${item.label}`"
               @click="selectWatchlistSymbol(item.value)">
               <div class="watchlist-symbol-info">
                 <strong>{{ item.label }}</strong>
@@ -105,17 +110,17 @@
                 </span>
               </div>
             </button>
-            <button v-if="store.availableSymbols.length > 1" class="watchlist-delete" type="button"
+            <button v-if="store.availableSymbols.length > 1" class="watchlist-delete" type="button" :disabled="!store.watchlistReady"
               title="删除交易对" :aria-label="`删除 ${item.label}`" @click="removeSymbol(item.value)">×</button>
           </div>
         </TransitionGroup>
       </aside>
 
       <div class="chart-section">
-        <SimpleChart v-if="store.klineData" :candles="store.klineData.data"
-          :symbol="store.symbol" :interval="store.interval" :has-more-before="store.klineData.has_more_before"
+        <SimpleChart v-if="store.watchlistReady" v-show="store.klineData" :candles="store.klineData?.data ?? []"
+          :symbol="store.symbol" :interval="store.interval" :has-more-before="store.klineData?.has_more_before ?? false"
           :symbols="chartSymbols" @selection-change="selectChartSelection" />
-        <div v-else class="chart-placeholder">
+        <div v-if="!store.klineData" class="chart-placeholder">
           {{ store.loading ? '正在加载 K 线…' : '选择交易对后显示 K 线图' }}
         </div>
       </div>
@@ -163,7 +168,7 @@ let validatingStreamError = false
 let marketGeneration = 0
 
 onMounted(() => {
-  void reloadMarket()
+  void initializeDashboard()
   watchdogTimer = window.setInterval(checkMarketFreshness, 1000)
 
   // Periodic REST fallback also refreshes the calculated indicators.
@@ -173,7 +178,8 @@ onMounted(() => {
 
 })
 
-watch(() => store.availableSymbols.map(item => item.value).join(','), () => {
+watch(() => store.watchlistReady ? store.availableSymbols.map(item => item.value).join(',') : '', value => {
+  if (!value) return
   void store.startWatchlistPriceStream()
 }, { immediate: true })
 
@@ -189,6 +195,7 @@ onUnmounted(() => {
 })
 
 function selectWatchlistSymbol(symbol: string) {
+  if (!store.watchlistReady) return
   if (store.symbol === symbol) return
   store.setSymbol(symbol)
   void reloadMarket()
@@ -203,6 +210,7 @@ function selectChartSelection(selection: { symbol: string; interval: string }) {
 }
 
 function beginWatchlistDrag(symbol: string, event: PointerEvent) {
+  if (!store.watchlistReady) return
   if (event.button !== undefined && event.button !== 0) return
   watchlistDragSymbol.value = symbol
   watchlistDragTarget.value = symbol
@@ -245,6 +253,7 @@ function isWatchlistDropTarget(symbol: string) {
 }
 
 async function addSymbol() {
+  if (!store.watchlistReady) return
   symbolValidating.value = true
   symbolError.value = null
   try {
@@ -260,9 +269,14 @@ async function addSymbol() {
   }
 }
 
-function removeSymbol(symbol: string) {
-  store.removeSymbol(symbol)
-  void reloadMarket()
+async function removeSymbol(symbol: string) {
+  const selectedBeforeRemoval = store.symbol
+  try {
+    await store.removeSymbol(symbol)
+    if (store.symbol !== selectedBeforeRemoval) void reloadMarket()
+  } catch (err: unknown) {
+    store.storageWarning = api.errorMessage(err, '移除交易对失败')
+  }
 }
 
 function formatPrice(price?: number): string {
@@ -276,9 +290,15 @@ function formatChangePercent(change?: number): string {
 }
 
 async function handleRefresh() {
+  if (!store.watchlistReady) return
   const generation = marketGeneration
   await store.fetchAnalysis()
   if (generation === marketGeneration) lastAnalysisRefresh = Date.now()
+}
+
+async function initializeDashboard() {
+  await store.initializeWatchlist()
+  await reloadMarket()
 }
 
 async function reloadMarket() {
@@ -311,6 +331,7 @@ async function reloadMarket() {
 }
 
 function checkMarketFreshness() {
+  if (!store.watchlistReady) return
   if (store.invalidSymbol) return
   const lastEvent = lastLiveEventAt || streamStartedAt
   if (Date.now() - lastEvent < 15_000) return
@@ -318,6 +339,7 @@ function checkMarketFreshness() {
 }
 
 async function runFallback() {
+  if (!store.watchlistReady) return
   if (fallbackGeneration === marketGeneration || store.invalidSymbol) return
   const generation = marketGeneration
   const liveAtStart = lastLiveEventAt
@@ -396,61 +418,101 @@ function formatTime(date: Date): string {
 }
 
 .header {
-  background: linear-gradient(135deg, #1e1e1e 0%, #2a2a2a 100%);
-  border-radius: 12px;
-  padding: 24px;
-  margin-bottom: 24px;
-  border: 1px solid #3a3a3a;
+  background: #11161e;
+  border: 1px solid #252d38;
+  border-radius: 10px;
+  padding: 8px 14px;
+  margin-bottom: 14px;
 }
 
 .stream-status {
   display: inline-flex;
   align-items: center;
-  margin-right: 12px;
+  gap: 6px;
+  padding: 4px 8px;
   color: #ffa726;
+  background: rgba(255, 167, 38, 0.08);
+  border: 1px solid rgba(255, 167, 38, 0.2);
+  border-radius: 999px;
+  font-size: 11px;
 }
 
 .stream-status::before {
   content: '';
-  width: 8px;
-  height: 8px;
-  margin-right: 6px;
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
   border-radius: 50%;
   background: currentColor;
 }
 
 .stream-status.live {
   color: #26a69a;
+  background: rgba(38, 166, 154, 0.08);
+  border-color: rgba(38, 166, 154, 0.2);
 }
 
 .stream-status.fallback { color: #ffa726; }
 .stream-status.unavailable { color: #ef5350; }
-.stream-note { margin-left: 12px; color: #aaa; }
+.stream-note { color: #8994a5; }
 
 .header-content {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  gap: 16px;
+}
+
+.brand-lockup {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+.brand-copy {
+  display: grid;
+  gap: 2px;
 }
 
 .title {
-  font-size: 32px;
-  font-weight: 700;
-  color: #fff;
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1;
+  color: #f1f6fc;
   margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
 }
 
+.logo-icon { width: 32px; height: 32px; flex: 0 0 auto; }
 
+.header-tools {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
 
 .controls {
   display: flex;
-  gap: 12px;
   align-items: center;
 }
+
+.github-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  color: #d5deeb;
+  background: transparent;
+  border: 1px solid #303946;
+  border-radius: 8px;
+  font-size: 12px;
+  text-decoration: none;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.github-link svg { width: 15px; height: 15px; }
+.github-link:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
 
 .symbol-action {
   padding: 8px 12px;
@@ -481,6 +543,16 @@ function formatTime(date: Date): string {
 }
 
 .symbol-error { color: #ff8a80; font-size: 13px; }
+
+.last-update {
+  display: flex;
+  min-height: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  color: #8994a5;
+  font-size: 12px;
+}
 
 .interval-buttons {
   display: flex;
@@ -541,40 +613,6 @@ function formatTime(date: Date): string {
 
 .interval-btn.active::before {
   opacity: 1;
-}
-
-.github-link {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #fff;
-  transition: all 0.3s ease;
-  text-decoration: none;
-}
-
-.github-link:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(102, 126, 234, 0.5);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-}
-
-.github-link svg {
-  transition: transform 0.3s ease;
-}
-
-.github-link:hover svg {
-  transform: scale(1.1);
-}
-
-.last-update {
-  font-size: 14px;
-  color: #999;
 }
 
 .loading-overlay {
@@ -724,20 +762,28 @@ function formatTime(date: Date): string {
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 600px) {
+  .header { padding: 10px 12px; }
+
   .header-content {
-    flex-direction: column;
-    gap: 16px;
-    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 10px;
   }
 
-  .title {
-    font-size: 24px;
-  }
+  .brand-lockup { gap: 8px; }
 
-  .controls {
+  .header-tools {
     width: 100%;
-    flex-direction: column;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .last-update { gap: 6px 8px; }
+}
+
+@media (max-width: 768px) {
+  .controls {
+    flex: 0 0 auto;
   }
 
   .market-layout { flex-direction: column; }

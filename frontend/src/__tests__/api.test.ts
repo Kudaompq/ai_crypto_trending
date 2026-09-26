@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
-const axiosMocks = vi.hoisted(() => ({ get: vi.fn(), isAxiosError: vi.fn(() => false) }))
+const axiosMocks = vi.hoisted(() => ({
+  get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn(), isAxiosError: vi.fn(() => false)
+}))
 vi.mock('axios', () => ({ default: axiosMocks }))
 import { api } from '../services/api'
 
@@ -44,6 +46,27 @@ describe('frontend API surface', () => {
       params: { symbol: 'ETHUSDT', interval: '5m', limit: 500, startTime: 1, endTime: 2 },
       signal: controller.signal
     })
+  })
+
+  it('loads and mutates the shared Watchlist through the backend API', async () => {
+    const watchlist = { symbols: ['BTCUSDT', 'ETHUSDT'], revision: 4, legacy_import_pending: false }
+    axiosMocks.get.mockResolvedValueOnce({ data: watchlist })
+    axiosMocks.post.mockResolvedValueOnce({ data: watchlist })
+    axiosMocks.post.mockResolvedValueOnce({ data: watchlist })
+    axiosMocks.delete.mockResolvedValueOnce({ data: watchlist })
+    axiosMocks.put.mockResolvedValueOnce({ data: watchlist })
+
+    await expect(api.getWatchlist()).resolves.toEqual(watchlist)
+    await api.importLegacyWatchlist(['BTCUSDT', 'ETHUSDT'])
+    await api.addWatchlistSymbol('SOLUSDT')
+    await api.removeWatchlistSymbol('SOLUSDT')
+    await api.reorderWatchlist(4, ['ETHUSDT', 'BTCUSDT'])
+
+    expect(axiosMocks.get).toHaveBeenCalledWith('/api/watchlist')
+    expect(axiosMocks.post).toHaveBeenNthCalledWith(1, '/api/watchlist/import-legacy', { symbols: ['BTCUSDT', 'ETHUSDT'] })
+    expect(axiosMocks.post).toHaveBeenNthCalledWith(2, '/api/watchlist/symbols', { symbol: 'SOLUSDT' })
+    expect(axiosMocks.delete).toHaveBeenCalledWith('/api/watchlist/symbols/SOLUSDT')
+    expect(axiosMocks.put).toHaveBeenCalledWith('/api/watchlist/order', { revision: 4, symbols: ['ETHUSDT', 'BTCUSDT'] })
   })
 
   it('subscribes to named watchlist price and shared stream status events', () => {

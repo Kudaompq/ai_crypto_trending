@@ -39,3 +39,7 @@ The system SHALL let users drag a visible watchlist symbol to a new position. Th
 #### Scenario: Add or remove a symbol after reordering
 - **WHEN** the user adds a symbol or removes a visible symbol
 - **THEN** the new symbol is appended to the shared watchlist order and a removed symbol is discarded from that order
+
+#### Scenario: Reject a stale reorder
+- **WHEN** a client submits a reorder based on an older Watchlist revision after another client has changed the shared list
+- **THEN** the server rejects the stale reorder, returns the current list and revision, and preserves the newer committed order

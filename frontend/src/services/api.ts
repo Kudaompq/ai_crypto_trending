@@ -64,6 +64,12 @@ export interface PriceSnapshot {
   unavailable_symbols: string[]
 }
 
+export interface WatchlistResponse {
+  symbols: string[]
+  revision: number
+  legacy_import_pending: boolean
+}
+
 export interface TrendAnalysis {
   direction: string
   strength: number
@@ -251,6 +257,31 @@ export const api = {
     const response = await axios.get<PriceSnapshot>(`${API_BASE_URL}/watchlist/prices`, {
       params: { symbols: symbols.join(',') }
     })
+    return response.data
+  },
+
+  async getWatchlist(): Promise<WatchlistResponse> {
+    const response = await axios.get<WatchlistResponse>(`${API_BASE_URL}/watchlist`)
+    return response.data
+  },
+
+  async importLegacyWatchlist(symbols: string[]): Promise<WatchlistResponse> {
+    const response = await axios.post<WatchlistResponse>(`${API_BASE_URL}/watchlist/import-legacy`, { symbols })
+    return response.data
+  },
+
+  async addWatchlistSymbol(symbol: string): Promise<WatchlistResponse> {
+    const response = await axios.post<WatchlistResponse>(`${API_BASE_URL}/watchlist/symbols`, { symbol })
+    return response.data
+  },
+
+  async removeWatchlistSymbol(symbol: string): Promise<WatchlistResponse> {
+    const response = await axios.delete<WatchlistResponse>(`${API_BASE_URL}/watchlist/symbols/${encodeURIComponent(symbol)}`)
+    return response.data
+  },
+
+  async reorderWatchlist(revision: number, symbols: string[]): Promise<WatchlistResponse> {
+    const response = await axios.put<WatchlistResponse>(`${API_BASE_URL}/watchlist/order`, { revision, symbols })
     return response.data
   },
 

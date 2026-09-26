@@ -1,231 +1,115 @@
-# ETH K线量化分析系统
+# Originx
 
-完整的 ETH K线分析系统，包含后端 API 和前端可视化界面。
+Originx 是 Binance USDⓈ-M 合约行情工作台，提供自选交易对、K 线图表、实时价格和图表工具。前端使用 KLineCharts Pro；Go 服务端访问 Binance 行情，并通过 HTTP 和 Server-Sent Events（SSE）向浏览器提供数据。
 
-## 功能特性
+## 功能
 
-### 技术指标
-- **MACD**: DIF, DEA, Histogram
-- **KDJ**: K, D, J 值
-- **RSI**: 6周期 & 14周期
-
-### 趋势分析
-- 综合多指标判断趋势方向（上升/下降/盘整）
-- 趋势强度评分（0-1）
-- 趋势反转概率计算
-
-### 蜡烛图形态识别
-基于《日本蜡烛图技术》，识别18+种经典形态：
-- **单根形态**: 锤子线、上吊线、倒锤子、射击之星、十字星等
-- **双根形态**: 看涨/看跌吞没、刺透形态、乌云盖顶、孕线等
-- **三根形态**: 启明星、黄昏星、三只乌鸦、三个白兵等
-
-### 支撑/压力位
-- 基于价格聚类算法
-- 成交量加权
-- 强度评分
-
-### 市场结构分析
-- 识别前高前低（Higher High, Higher Low）
-- 结构破位检测
-- 风险等级评估
-
-## 项目结构
-
-```
-ai_trending/
-├── backend/                    # Golang 后端
-│   ├── cmd/
-│   │   └── server/
-│   │       └── main.go         # 服务器入口
-│   ├── internal/
-│   │   ├── handler/            # HTTP 处理器
-│   │   ├── service/            # 业务逻辑
-│   │   ├── repository/         # 数据访问
-│   │   ├── indicator/          # 技术指标
-│   │   └── model/              # 数据模型
-│   └── go.mod
-└── frontend/                   # Vue3 前端
-    ├── src/
-    │   ├── views/              # 页面组件
-    │   ├── components/         # 通用组件
-    │   ├── stores/             # 状态管理
-    │   └── api/                # API 接口
-    └── package.json
-```
+- **共享 Watchlist**：添加、选择、删除和拖动排序合约交易对；显示最新价格和 24 小时涨跌幅。所有访问同一部署的客户端共用 PostgreSQL 中的列表。
+- **可定制 K 线图表**：选择 Watchlist 中的交易对与周期，按需添加 MA、EMA、BOLL、MACD 和未平仓持仓量（OI）指标，并使用图表绘图工具。
+- **行情状态**：区分连接中、实时更新、REST 备用更新和行情不可用。只有收到有效实时事件后才显示“实时更新”；实时流中断后会尝试 REST 备用行情。
+- **本地保存图表设置**：指标设置和绘图保存在当前浏览器；Watchlist 和顺序保存在服务端 PostgreSQL。图表设置不会在浏览器之间同步。
+- **分析 API**：后端保留趋势、技术指标、支撑/压力位、蜡烛图形态和市场结构的综合分析接口；当前主界面以图表和 Watchlist 为主。
 
 ## 快速开始
 
-在项目根目录运行本地开发脚本（需要 Go 1.23+、Node.js 和 npm）：
+本地开发和 Docker 部署的完整步骤见 [QUICKSTART.md](QUICKSTART.md)。本地开发需要 Go 1.23+、Node.js（20.19+ 或 22.12+）、npm 和 Docker Compose v2：
 
 ```bash
+cp .env.example .env
+# 编辑 .env：设置 POSTGRES_PASSWORD，并在 WATCHLIST_DATABASE_URL 中使用相同的 URL 安全密码
+docker compose up -d postgres
 ./start.sh
 ```
 
-首次运行会安装前端依赖。访问 `http://localhost:5173`，按 Ctrl+C 停止前后端服务。
-如果 8080 端口已被占用，可以运行 `PORT=18080 ./start.sh`。
+打开 `http://localhost:5173`。脚本会从 `.env` 读取数据库连接配置、编译后端并启动前后端；按 Ctrl+C 停止服务。后端默认使用 8080 端口；若该端口被占用，可运行 `PORT=18080 ./start.sh`。
 
-也可以分别启动：
-
-### 1. 启动后端
+也可以用 Docker 启动完整服务：
 
 ```bash
-cd backend
-go mod download
-go run cmd/server/main.go
+docker compose up -d --build
 ```
 
-服务器将在 `http://localhost:8080` 启动
+打开 `http://localhost:9999`。Docker 模式还会在 `http://localhost:8888` 发布后端 API；PostgreSQL 默认只绑定主机的 `127.0.0.1:5432`。
 
-### 2. 启动前端
+## 数据持久化与备份
+
+PostgreSQL 的 `postgres-data` 卷保存共享 Watchlist。数据库初始化时，旧版浏览器 Watchlist 只会由首个完成同步的客户端导入一次；之后所有客户端以数据库中的列表为准。新部署没有账户隔离，同一部署的访问者共用一份 Watchlist。
+
+停止或重建容器时不要使用 `docker compose down -v`，该命令会删除 PostgreSQL 数据卷。普通的 `docker compose down` 会保留该卷，但卷持久化不能代替备份。
+
+备份数据库：
+
+```bash
+docker compose exec -T postgres sh -c 'pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB"' > watchlist.dump
+```
+
+恢复会清理并重建目标数据库中的对象。确认目标数据库可以被覆盖后执行：
+
+```bash
+docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner' < watchlist.dump
+```
+
+请将备份文件保存在仓库之外，并按部署环境的保留策略进行加密和异地存放。
+
+## 行情状态说明
+
+K 线历史数据和 OI 由后端从 Binance 获取；实时 K 线与 Watchlist 报价通过后端 SSE 推送到浏览器。SSE 的 `ready` 事件只表示浏览器已连接到后端，不表示 Binance 行情已经到达。
+
+实时事件中断约 15 秒后，页面会尝试通过 REST 更新行情，并将状态标为“备用更新（非实时）”；实时推送恢复后会切回“实时更新”。如果行情停止变化，请同时检查页面状态和“最近行情”时间。
+
+## API
+
+所有 API 路径以 `/api` 开头。需要 Binance USDⓈ-M 合约交易对的接口会校验交易对格式和数据源支持情况。
+
+| 方法与路径 | 用途 |
+| --- | --- |
+| `GET /api/health` | 健康检查 |
+| `GET /api/symbols/validate?symbol=BTCUSDT` | 校验并规范化合约交易对 |
+| `GET /api/kline?symbol=ETHUSDT&interval=1d&limit=100` | 获取历史 K 线；支持 `endTime` 毫秒时间戳分页，最多 500 根 |
+| `GET /api/open-interest?symbol=ETHUSDT&interval=1d&limit=100` | 获取 OI 历史数据；支持 `startTime` 和 `endTime` |
+| `GET /api/analysis?symbol=ETHUSDT&interval=1d&limit=100` | 获取综合分析结果 |
+| `GET /api/stream?symbol=ETHUSDT&interval=1m` | 通过 SSE 推送 K 线事件和连接状态 |
+| `GET /api/watchlist` | 获取共享 Watchlist 与版本号 |
+| `POST /api/watchlist/import-legacy` | 首次启用服务端 Watchlist 时导入旧版浏览器列表 |
+| `POST /api/watchlist/symbols`、`DELETE /api/watchlist/symbols/:symbol` | 添加或移除交易对 |
+| `PUT /api/watchlist/order` | 更新共享列表顺序 |
+| `GET /api/watchlist/prices?symbols=BTCUSDT,ETHUSDT` | 获取报价快照 |
+| `GET /api/watchlist/stream?symbols=BTCUSDT,ETHUSDT` | 通过 SSE 推送 Watchlist 报价和状态 |
+
+K 线周期：`1m`、`3m`、`5m`、`15m`、`30m`、`1h`、`2h`、`4h`、`6h`、`8h`、`12h`、`1d`、`3d`、`1w`、`1M`。OI 数据受 Binance 上游接口的周期和时间范围限制。
+
+## 项目结构
+
+```text
+backend/
+  cmd/server/             Go 服务入口与路由
+  internal/handler/       HTTP、SSE 输入和响应
+  internal/service/        行情、Watchlist 与分析业务
+  internal/repository/     Binance 与 PostgreSQL 数据访问
+  internal/database/      PostgreSQL 初始化和迁移
+  internal/indicator/     技术指标
+frontend/src/
+  views/Dashboard.vue     主页面与 Watchlist
+  components/SimpleChart.vue  KLineCharts Pro 图表
+  stores/analysis.ts       前端行情和 Watchlist 状态
+  services/               API、图表数据源和本地偏好
+```
+
+## 技术栈与开发检查
+
+- 后端：Go、Gin、PostgreSQL（pgx）、Binance REST/WebSocket
+- 前端：Vue 3、TypeScript、Pinia、Vite、Element Plus、KLineCharts Pro
+
+运行后端测试：
+
+```bash
+go test -count=1 ./backend/...
+```
+
+运行前端测试和类型检查/生产构建：
 
 ```bash
 cd frontend
-npm install
-npm run dev
+npm test
+npm run build
 ```
-
-前端将在 `http://localhost:5173` 启动
-
-### 3. 访问应用
-
-在浏览器中打开: `http://localhost:5173`
-
-### 自选交易对与行情状态
-
-点击交易对下拉框旁的 `+`，输入 Binance 合约交易对（例如 `AVAXUSDT`）并添加。
-输入会自动转为大写，服务端会检查该合约是否可交易。自选列表保存在当前浏览器；
-选中自选交易对后可点击 `−` 删除。
-
-页面将行情标为“正在连接实时行情”“实时更新”“备用更新（非实时）”或
-“行情不可用或已过期”。收到第一条价格事件后才显示实时更新。实时事件中断约
-15 秒后，页面每约 15 秒通过 REST 获取备用行情；恢复推送后自动回到实时更新。
-如果价格不动，先看状态和“最近行情”时间：备用更新说明 Binance WebSocket
-可能被当前网络或代理阻断；行情不可用说明备用 REST 请求也未成功。
-
-## API 端点
-
-#### 校验交易对
-```bash
-GET /api/symbols/validate?symbol=AVAXUSDT
-```
-
-成功时返回规范化后的交易对；格式错误返回 400，不可交易返回 404，
-交易所校验暂不可用返回 503。
-
-#### 1. 健康检查
-```bash
-GET /api/health
-```
-
-#### 2. 获取K线数据
-```bash
-GET /api/kline?symbol=ETHUSDT&interval=1d&limit=100
-```
-
-参数:
-- `symbol`: 交易对（默认: ETHUSDT）
-- `interval`: 时间周期（1m, 5m, 15m, 1h, 4h, 1d）
-- `limit`: 数据条数（默认: 100, 最大: 500）
-
-#### 3. 获取综合分析
-```bash
-GET /api/analysis?symbol=ETHUSDT&interval=1d&limit=100
-```
-
-返回完整的分析结果，包括：
-- 趋势分析
-- 技术指标（MACD, KDJ, RSI）
-- 支撑/压力位
-- 蜡烛图形态
-- 市场结构
-
-#### 4. 实时 K 线流
-```bash
-GET /api/stream?symbol=ETHUSDT&interval=1m
-```
-
-该接口使用 Server-Sent Events 持续推送 Binance 合约 K 线。连接建立后先发送
-`ready` 事件；收到上游价格后发送 `kline` 事件，上游连接失败或重试时发送
-`status` 事件。`ready` 只表示浏览器已连到后端，不表示上游价格已开始推送。
-同一交易对和周期的浏览器连接共享一条 Binance WebSocket，并在上游断开后自动重连。
-
-### 示例响应
-
-```json
-{
-  "symbol": "ETHUSDT",
-  "interval": "1d",
-  "timestamp": 1700000000000,
-  "trend": {
-    "direction": "上升",
-    "strength": 0.75,
-    "change_probability": 0.25
-  },
-  "indicators": {
-    "macd": {
-      "dif": 12.5,
-      "dea": 10.2,
-      "histogram": 4.6
-    },
-    "kdj": {
-      "k": 75.3,
-      "d": 68.9,
-      "j": 88.1
-    },
-    "rsi": {
-      "rsi6": 68.5,
-      "rsi14": 62.3
-    }
-  },
-  "sr_levels": {
-    "resistance": [
-      {"price": 2100, "strength": 0.9}
-    ],
-    "support": [
-      {"price": 2000, "strength": 0.85}
-    ]
-  },
-  "candlestick_patterns": [
-    {
-      "pattern": "看涨吞没",
-      "type": "反转",
-      "direction": "看涨",
-      "position": -1,
-      "reliability": 0.9,
-      "description": "大阳线吞没前阴线，强烈看涨信号"
-    }
-  ],
-  "market_structure": {
-    "higher_high": true,
-    "higher_low": true,
-    "structure_break": false,
-    "risk_level": "低"
-  }
-}
-```
-
-## 技术栈
-
-### 后端
-- **语言**: Go 1.21+
-- **框架**: Gin
-- **数据源**: Binance API
-- **技术指标**: TA-Lib
-
-### 前端
-- **框架**: Vue 3 + TypeScript
-- **构建工具**: Vite
-- **图表**: TradingView Lightweight Charts
-- **UI**: Element Plus
-
-## 开发计划
-
-- [x] Phase 0: 学习日本蜡烛图技术
-- [x] Phase 1: 后端基础架构
-- [x] Phase 2: 前端开发
-- [ ] Phase 3: 优化与测试
-
-## 许可证
-
-MIT

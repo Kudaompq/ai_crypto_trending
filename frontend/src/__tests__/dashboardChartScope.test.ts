@@ -2,6 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import Dashboard from '../views/Dashboard.vue'
 
 const { dashboardStore, apiMocks } = vi.hoisted(() => {
@@ -12,13 +13,14 @@ const { dashboardStore, apiMocks } = vi.hoisted(() => {
     error: null as string | null,
     symbol: 'BTCUSDT',
     interval: '1d',
-    klineData: { symbol: 'BTCUSDT', interval: '1d', data: [], has_more_before: false },
+    klineData: null as null | { symbol: string; interval: string; data: unknown[]; has_more_before: boolean },
     lastUpdate: new Date('2026-09-26T00:00:00Z'),
     trendDirection: 'neutral',
     trendStrength: 0,
     trendColor: '',
     invalidSymbol: false,
     priceStreamState: 'live',
+    watchlistReady: true,
     availableSymbols: [
       { value: 'BTCUSDT', label: 'BTC/USDT' },
       { value: 'ETHUSDT', label: 'ETH/USDT' }
@@ -30,6 +32,7 @@ const { dashboardStore, apiMocks } = vi.hoisted(() => {
     },
     startWatchlistPriceStream: vi.fn(),
     stopWatchlistPriceStream: vi.fn(),
+    initializeWatchlist: vi.fn(async () => undefined),
     fetchAnalysis: vi.fn(async () => undefined),
     fetchFallbackKline: vi.fn(async () => true),
     updateRealtimeCandle: vi.fn(),
@@ -83,12 +86,34 @@ describe('Dashboard chart integration scope', () => {
     const wrapper = mount(Dashboard, { global: { stubs: { 'el-icon': true, 'el-alert': true, Loading: true } } })
     await Promise.resolve()
 
-    expect(wrapper.find('.header h1.title').text()).toContain('加密货币趋势分析系统')
+    expect(wrapper.find('.header h1.title').text()).toContain('Originx')
     expect(wrapper.find('.watchlist-heading h2').text()).toBe('Watchlist')
     expect(wrapper.findAll('.watchlist-item')).toHaveLength(2)
     expect(wrapper.find('.interval-buttons').exists()).toBe(false)
     expect(wrapper.get('[data-testid="integrated-chart"]').attributes('data-symbol')).toBe('BTCUSDT')
     expect(wrapper.get('[data-testid="integrated-chart"]').attributes('data-symbols')).toBe('BTCUSDT,ETHUSDT')
+
+    wrapper.unmount()
+  })
+
+  it('keeps the chart mounted but hidden while market data reloads', async () => {
+    const wrapper = mount(Dashboard, { global: { stubs: { 'el-icon': true, 'el-alert': true, Loading: true } } })
+    const originalChart = wrapper.get('[data-testid="integrated-chart"]').element
+
+    dashboardStore.klineData = null
+    wrapper.vm.$forceUpdate()
+    await nextTick()
+
+    const chart = wrapper.find('[data-testid="integrated-chart"]')
+    expect(chart.exists()).toBe(true)
+    expect(chart.element).toBe(originalChart)
+    expect(chart.element.getAttribute('style')).toContain('display: none')
+
+    dashboardStore.klineData = { symbol: 'ETHUSDT', interval: '1d', data: [], has_more_before: false }
+    wrapper.vm.$forceUpdate()
+    await nextTick()
+    expect(wrapper.get('[data-testid="integrated-chart"]').element).toBe(originalChart)
+    expect(wrapper.get('[data-testid="integrated-chart"]').element.getAttribute('style')).not.toContain('display: none')
 
     wrapper.unmount()
   })

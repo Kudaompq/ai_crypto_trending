@@ -25,6 +25,18 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+if [[ -f "$root_dir/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$root_dir/.env"
+    set +a
+fi
+
+if [[ -z "${WATCHLIST_DATABASE_URL:-}" ]]; then
+    echo "缺少 WATCHLIST_DATABASE_URL。请复制 .env.example 为 .env 并配置 PostgreSQL。" >&2
+    exit 1
+fi
+
 for command in go npm; do
     if ! command -v "$command" >/dev/null 2>&1; then
         echo "缺少 $command，请先安装后重试。" >&2

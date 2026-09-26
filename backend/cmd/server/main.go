@@ -1,14 +1,17 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/kudaompq/ai_trending/backend/internal/database"
 	"github.com/kudaompq/ai_trending/backend/internal/handler"
+	"github.com/kudaompq/ai_trending/backend/internal/repository"
 	"github.com/kudaompq/ai_trending/backend/internal/service"
 )
 
@@ -17,7 +20,17 @@ func main() {
 		log.Fatalf("Failed to remove legacy trading-opportunity database: %v", err)
 	}
 
-	r := newRouter()
+	startupContext, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	db, err := database.OpenPostgres(startupContext, os.Getenv("WATCHLIST_DATABASE_URL"))
+	cancel()
+	if err != nil {
+		log.Fatalf("Failed to initialize PostgreSQL: %v", err)
+	}
+	defer db.Close()
+
+	validator := service.NewSymbolValidator()
+	watchlist := service.NewWatchlistService(repository.NewPostgresWatchlistRepository(db), validator)
+	r := newRouter(watchlist)
 
 	// Start server
 	port := os.Getenv("PORT")
@@ -40,7 +53,7 @@ func main() {
 	}
 }
 
-func newRouter() *gin.Engine {
+func newRouter(watchlists ...*service.WatchlistService) *gin.Engine {
 	// Create Gin router
 	r := gin.Default()
 
@@ -64,6 +77,9 @@ func newRouter() *gin.Engine {
 	// API routes
 	api := r.Group("/api")
 	{
+		if len(watchlists) > 0 && watchlists[0] != nil {
+			handler.RegisterWatchlistRoutes(api, watchlists[0])
+		}
 		api.GET("/symbols/validate", handler.ValidateSymbol(validator))
 		// K-line data endpoint
 		api.GET("/kline", klineHandler.GetKline)

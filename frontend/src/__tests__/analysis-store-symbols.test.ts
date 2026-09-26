@@ -5,6 +5,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAnalysisStore } from '../stores/analysis'
 
 const apiMocks = vi.hoisted(() => ({
+  getWatchlist: vi.fn(),
+  importLegacyWatchlist: vi.fn(),
+  addWatchlistSymbol: vi.fn(),
+  removeWatchlistSymbol: vi.fn(),
+  reorderWatchlist: vi.fn(),
   validateSymbol: vi.fn(async (raw: string) => raw.trim().toUpperCase()),
   getWatchlistPrices: vi.fn(async () => ({ prices: [
     { symbol: 'BTCUSDT', price: 100, change_24h_percent: 0.5, event_time: 1000 },
@@ -17,6 +22,10 @@ const apiMocks = vi.hoisted(() => ({
   invalidSelection: vi.fn(() => false)
 }))
 
+const watchlist = (symbols: string[], revision = 1, pending = false) => ({
+  symbols, revision, legacy_import_pending: pending
+})
+
 vi.mock('../services/api', () => ({ api: apiMocks }))
 
 describe('editable preset symbols', () => {
@@ -24,6 +33,11 @@ describe('editable preset symbols', () => {
     localStorage.clear()
     apiMocks.validateSymbol.mockClear()
     setActivePinia(createPinia())
+    apiMocks.getWatchlist.mockResolvedValue(watchlist(['BTCUSDT', 'ETHUSDT']))
+    apiMocks.importLegacyWatchlist.mockImplementation(async (symbols: string[]) => watchlist(symbols, 2))
+    apiMocks.addWatchlistSymbol.mockImplementation(async (symbol: string) => watchlist(['BTCUSDT', 'ETHUSDT', symbol], 2))
+    apiMocks.removeWatchlistSymbol.mockImplementation(async (symbol: string) => watchlist(['BTCUSDT', 'ETHUSDT'].filter(item => item !== symbol), 2))
+    apiMocks.reorderWatchlist.mockImplementation(async (_revision: number, symbols: string[]) => watchlist(symbols, 2))
     apiMocks.getWatchlistPrices.mockResolvedValue({ prices: [
       { symbol: 'BTCUSDT', price: 100, change_24h_percent: 0.5, event_time: 1000 },
       { symbol: 'ETHUSDT', price: 200, change_24h_percent: -0.25, event_time: 1000 }
@@ -51,16 +65,20 @@ describe('editable preset symbols', () => {
     expect(order).toContain('BTCUSDT')
   })
 
-  it('appends new symbols to the saved order and removes deleted symbols from it', async () => {
-    localStorage.setItem('crypto-trending-watchlist-order', JSON.stringify(['SOLUSDT', 'ETHUSDT']))
+  it('appends and removes symbols through the shared server Watchlist', async () => {
+    apiMocks.getWatchlist.mockResolvedValueOnce(watchlist(['SOLUSDT', 'ETHUSDT']))
     const store = useAnalysisStore()
+    await store.initializeWatchlist()
+    apiMocks.addWatchlistSymbol.mockResolvedValueOnce(watchlist(['SOLUSDT', 'ETHUSDT', 'AVAXUSDT'], 2))
+    apiMocks.removeWatchlistSymbol.mockResolvedValueOnce(watchlist(['SOLUSDT', 'AVAXUSDT'], 3))
 
     await store.addCustomSymbol('AVAXUSDT')
     expect(store.availableSymbols[store.availableSymbols.length - 1]?.value).toBe('AVAXUSDT')
 
-    store.removeSymbol('ETHUSDT')
+    await store.removeSymbol('ETHUSDT')
     expect(store.availableSymbols.map(item => item.value)).not.toContain('ETHUSDT')
-    expect(JSON.parse(localStorage.getItem('crypto-trending-watchlist-order') || '[]')).not.toContain('ETHUSDT')
+    expect(apiMocks.addWatchlistSymbol).toHaveBeenCalledWith('AVAXUSDT')
+    expect(apiMocks.removeWatchlistSymbol).toHaveBeenCalledWith('ETHUSDT')
   })
 
   it('does not let a previous period response replace the newly selected market data', async () => {
@@ -92,38 +110,51 @@ describe('editable preset symbols', () => {
     expect(store.analysisResult?.interval).toBe('3m')
   })
 
-  it('removes preset symbols persistently and selects a remaining symbol', () => {
+  it('removes symbols from the server and selects a remaining symbol', async () => {
+    apiMocks.getWatchlist
+      .mockResolvedValueOnce(watchlist(['BTCUSDT', 'ETHUSDT']))
+      .mockResolvedValueOnce(watchlist(['BTCUSDT'], 2))
     const store = useAnalysisStore()
-    store.removeSymbol('ETHUSDT')
+    await store.initializeWatchlist()
+    apiMocks.removeWatchlistSymbol.mockResolvedValueOnce(watchlist(['BTCUSDT'], 2))
+    store.setSymbol('ETHUSDT')
+    await store.removeSymbol('ETHUSDT')
 
     expect(store.availableSymbols.some(item => item.value === 'ETHUSDT')).toBe(false)
     expect(store.symbol).toBe('BTCUSDT')
 
     setActivePinia(createPinia())
     const restoredStore = useAnalysisStore()
+    await restoredStore.initializeWatchlist()
     expect(restoredStore.availableSymbols.some(item => item.value === 'ETHUSDT')).toBe(false)
     expect(restoredStore.symbol).toBe('BTCUSDT')
   })
 
-  it('allows a removed preset to be added back', async () => {
+  it('allows a removed preset to be added back through the server', async () => {
+    apiMocks.getWatchlist.mockResolvedValueOnce(watchlist(['BTCUSDT']))
     const store = useAnalysisStore()
-    store.removeSymbol('ETHUSDT')
+    await store.initializeWatchlist()
+    apiMocks.addWatchlistSymbol.mockResolvedValueOnce(watchlist(['BTCUSDT', 'ETHUSDT'], 2))
 
     await expect(store.addCustomSymbol('ETHUSDT')).resolves.toBe('ETHUSDT')
     expect(store.availableSymbols.some(item => item.value === 'ETHUSDT')).toBe(true)
     expect(apiMocks.validateSymbol).not.toHaveBeenCalled()
+    expect(apiMocks.addWatchlistSymbol).toHaveBeenCalledWith('ETHUSDT')
   })
 
-  it('keeps at least one symbol in the selector', () => {
+  it('keeps at least one symbol in the selector', async () => {
+    apiMocks.getWatchlist.mockResolvedValueOnce(watchlist(['BTCUSDT', 'ETHUSDT']))
+    apiMocks.removeWatchlistSymbol.mockClear()
     const store = useAnalysisStore()
-    for (const item of store.availableSymbols.slice(0, -1)) {
-      store.removeSymbol(item.value)
-    }
+    await store.initializeWatchlist()
+    apiMocks.removeWatchlistSymbol.mockResolvedValueOnce(watchlist(['ETHUSDT'], 2))
+    await store.removeSymbol('BTCUSDT')
 
     const lastSymbol = store.availableSymbols[0]
     expect(lastSymbol).toBeDefined()
-    store.removeSymbol(lastSymbol!.value)
+    await store.removeSymbol(lastSymbol!.value)
     expect(store.availableSymbols).toHaveLength(1)
+    expect(apiMocks.removeWatchlistSymbol).toHaveBeenCalledTimes(1)
   })
 
   it('loads every watchlist quote and keeps newer stream prices when an older snapshot arrives late', async () => {
@@ -206,14 +237,17 @@ describe('editable preset symbols', () => {
       .mockReturnValueOnce(streams[1])
       .mockReturnValueOnce(streams[2])
     const store = useAnalysisStore()
+    await store.initializeWatchlist()
     await store.startWatchlistPriceStream()
+    apiMocks.addWatchlistSymbol.mockResolvedValueOnce(watchlist(['BTCUSDT', 'ETHUSDT', 'AVAXUSDT'], 2))
 
     await store.addCustomSymbol('AVAXUSDT')
     await store.startWatchlistPriceStream()
     expect(apiMocks.createWatchlistPriceStream.mock.calls[1]?.[0]).toContain('AVAXUSDT')
     expect(streams[0]!.close).toHaveBeenCalledOnce()
 
-    store.removeSymbol('AVAXUSDT')
+    apiMocks.removeWatchlistSymbol.mockResolvedValueOnce(watchlist(['BTCUSDT', 'ETHUSDT'], 3))
+    await store.removeSymbol('AVAXUSDT')
     await store.startWatchlistPriceStream()
     expect(apiMocks.createWatchlistPriceStream.mock.calls[2]?.[0]).not.toContain('AVAXUSDT')
     expect(streams[1]!.close).toHaveBeenCalledOnce()
