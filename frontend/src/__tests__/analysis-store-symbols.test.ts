@@ -37,6 +37,32 @@ describe('editable preset symbols', () => {
     expect(store.availableSymbols.some(item => item.value === 'MATICUSDT')).toBe(false)
   })
 
+  it('restores the saved watchlist order and reconciles stale and duplicate entries', () => {
+    localStorage.setItem('crypto-trending-watchlist-order', JSON.stringify([
+      'SOLUSDT', 'ETHUSDT', 'SOLUSDT', 'REMOVEDUSDT'
+    ]))
+
+    const store = useAnalysisStore()
+    const order = store.availableSymbols.map(item => item.value)
+
+    expect(order.slice(0, 2)).toEqual(['SOLUSDT', 'ETHUSDT'])
+    expect(order).toHaveLength(new Set(order).size)
+    expect(order).not.toContain('REMOVEDUSDT')
+    expect(order).toContain('BTCUSDT')
+  })
+
+  it('appends new symbols to the saved order and removes deleted symbols from it', async () => {
+    localStorage.setItem('crypto-trending-watchlist-order', JSON.stringify(['SOLUSDT', 'ETHUSDT']))
+    const store = useAnalysisStore()
+
+    await store.addCustomSymbol('AVAXUSDT')
+    expect(store.availableSymbols[store.availableSymbols.length - 1]?.value).toBe('AVAXUSDT')
+
+    store.removeSymbol('ETHUSDT')
+    expect(store.availableSymbols.map(item => item.value)).not.toContain('ETHUSDT')
+    expect(JSON.parse(localStorage.getItem('crypto-trending-watchlist-order') || '[]')).not.toContain('ETHUSDT')
+  })
+
   it('does not let a previous period response replace the newly selected market data', async () => {
     const candle = (timestamp: number) => ({ timestamp, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 })
     let resolveOldKline!: (value: unknown) => void

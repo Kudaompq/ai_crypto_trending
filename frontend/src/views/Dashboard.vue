@@ -75,9 +75,21 @@
           </button>
           <span v-if="symbolError" class="symbol-error" role="alert">{{ symbolError }}</span>
         </form>
-        <div class="watchlist-items">
+        <TransitionGroup name="watchlist-order" tag="div" class="watchlist-items">
           <div v-for="item in store.availableSymbols" :key="item.value" class="watchlist-item"
-            :class="{ active: store.symbol === item.value }" :data-symbol="item.value">
+            :class="{
+              active: store.symbol === item.value,
+              dragging: watchlistDragSymbol === item.value,
+              'drop-target': watchlistDragTarget === item.value && watchlistDragSymbol !== item.value,
+              'drop-before': isWatchlistDropBefore(item.value),
+              'drop-after': isWatchlistDropAfter(item.value)
+            }" :data-symbol="item.value"
+            @pointerenter="updateWatchlistDragTarget(item.value, $event)"
+            @pointermove="updateWatchlistDragTarget(item.value, $event)"
+            @pointerup="finishWatchlistDrag(item.value, $event)" @pointercancel="cancelWatchlistDrag">
+            <button class="watchlist-drag-handle" type="button" title="拖动调整顺序"
+              :aria-label="`拖动 ${item.label} 调整顺序`"
+              @pointerdown.stop="beginWatchlistDrag(item.value, $event)">⠿</button>
             <button class="watchlist-select" type="button" :aria-label="`选择 ${item.label}`"
               @click="selectWatchlistSymbol(item.value)">
               <div class="watchlist-symbol-info">
@@ -96,7 +108,7 @@
             <button v-if="store.availableSymbols.length > 1" class="watchlist-delete" type="button"
               title="删除交易对" :aria-label="`删除 ${item.label}`" @click="removeSymbol(item.value)">×</button>
           </div>
-        </div>
+        </TransitionGroup>
       </aside>
 
       <div class="chart-section">
@@ -148,6 +160,8 @@ const priceStreamStatusText = computed(() => ({
   live: '实时价格',
   reconnecting: '价格重连中'
 })[store.priceStreamState])
+const watchlistDragSymbol = ref<string | null>(null)
+const watchlistDragTarget = ref<string | null>(null)
 let streamStartedAt = 0
 let lastLiveEventAt = 0
 let lastFallbackAttempt = 0
@@ -197,6 +211,48 @@ function selectWatchlistSymbol(symbol: string) {
   if (store.symbol === symbol) return
   store.setSymbol(symbol)
   void reloadMarket()
+}
+
+function beginWatchlistDrag(symbol: string, event: PointerEvent) {
+  if (event.button !== undefined && event.button !== 0) return
+  watchlistDragSymbol.value = symbol
+  watchlistDragTarget.value = symbol
+}
+
+function updateWatchlistDragTarget(fallbackSymbol: string, event: PointerEvent) {
+  if (!watchlistDragSymbol.value) return
+  const pointed = document.elementFromPoint?.(event.clientX, event.clientY)?.closest<HTMLElement>('.watchlist-item')
+  watchlistDragTarget.value = pointed?.dataset.symbol || fallbackSymbol
+}
+
+function finishWatchlistDrag(fallbackSymbol: string, event: PointerEvent) {
+  if (!watchlistDragSymbol.value) return
+  updateWatchlistDragTarget(fallbackSymbol, event)
+  const sourceSymbol = watchlistDragSymbol.value
+  const targetSymbol = watchlistDragTarget.value
+  const targetIndex = store.availableSymbols.findIndex(item => item.value === targetSymbol)
+  if (targetIndex >= 0 && sourceSymbol !== targetSymbol) store.reorderSymbols(sourceSymbol, targetIndex)
+  cancelWatchlistDrag()
+}
+
+function cancelWatchlistDrag() {
+  watchlistDragSymbol.value = null
+  watchlistDragTarget.value = null
+}
+
+function isWatchlistDropBefore(symbol: string) {
+  return isWatchlistDropTarget(symbol) && !isWatchlistDropAfter(symbol)
+}
+
+function isWatchlistDropAfter(symbol: string) {
+  if (!watchlistDragSymbol.value || !watchlistDragTarget.value || watchlistDragTarget.value !== symbol) return false
+  const sourceIndex = store.availableSymbols.findIndex(item => item.value === watchlistDragSymbol.value)
+  const targetIndex = store.availableSymbols.findIndex(item => item.value === symbol)
+  return sourceIndex >= 0 && targetIndex >= 0 && sourceIndex < targetIndex
+}
+
+function isWatchlistDropTarget(symbol: string) {
+  return watchlistDragTarget.value === symbol && watchlistDragSymbol.value !== symbol
 }
 
 async function addSymbol() {
@@ -598,6 +654,7 @@ function formatTime(date: Date): string {
 }
 
 .watchlist-item {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -607,11 +664,45 @@ function formatTime(date: Date): string {
   border: 1px solid transparent;
   border-radius: 8px;
   color: #ddd;
-  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
+}
+
+.watchlist-item.watchlist-order-move {
+  transition: transform 200ms cubic-bezier(.2, .75, .25, 1), background-color 150ms ease,
+    border-color 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
 }
 
 .watchlist-item:hover { background: #242424; }
 .watchlist-item.active { border-color: #667eea; background: rgba(102, 126, 234, .14); }
+.watchlist-item.dragging {
+  z-index: 1;
+  opacity: .62;
+  border-style: dashed;
+  border-color: #9aa7ff;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, .16);
+}
+.watchlist-item.drop-target {
+  border-color: rgba(142, 156, 255, .72);
+  background: rgba(102, 126, 234, .22);
+  box-shadow: inset 0 0 0 1px rgba(142, 156, 255, .12);
+}
+.watchlist-item.drop-before::before,
+.watchlist-item.drop-after::after {
+  position: absolute;
+  right: 7px;
+  left: 7px;
+  z-index: 2;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #667eea, #b49cff);
+  box-shadow: 0 0 10px rgba(142, 156, 255, .7);
+  content: '';
+  pointer-events: none;
+}
+.watchlist-item.drop-before::before { top: -5px; }
+.watchlist-item.drop-after::after { bottom: -5px; }
+.watchlist-drag-handle { flex-shrink: 0; padding: 3px 2px; border: 0; background: transparent; color: #777; cursor: grab; touch-action: none; }
+.watchlist-drag-handle:active { cursor: grabbing; }
 .watchlist-select { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .watchlist-symbol-info, .watchlist-price-info { display: flex; flex-direction: column; gap: 4px; }
 .watchlist-symbol-info strong, .watchlist-price-info strong { font-size: 13px; }
@@ -635,6 +726,13 @@ function formatTime(date: Date): string {
   border-radius: 12px;
   color: #999;
   background: #171717;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .watchlist-item.watchlist-order-move,
+  .watchlist-item {
+    transition-duration: 0.01ms;
+  }
 }
 
 @media (max-width: 768px) {

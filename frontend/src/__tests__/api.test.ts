@@ -34,6 +34,18 @@ describe('frontend API surface', () => {
     })
   })
 
+  it('requests open-interest data for the selected symbol, interval, and chart range', async () => {
+    const data = { symbol: 'ETHUSDT', interval: '5m', data: [{ timestamp: 1, quantity: 2, value: 3 }] }
+    axiosMocks.get.mockResolvedValueOnce({ data })
+    const controller = new AbortController()
+
+    await expect(api.getOpenInterestData('ETHUSDT', '5m', 500, 1, 2, controller.signal)).resolves.toEqual(data)
+    expect(axiosMocks.get).toHaveBeenCalledWith('/api/open-interest', {
+      params: { symbol: 'ETHUSDT', interval: '5m', limit: 500, startTime: 1, endTime: 2 },
+      signal: controller.signal
+    })
+  })
+
   it('subscribes to named watchlist price and shared stream status events', () => {
     const addEventListener = vi.fn()
     const listeners = new Map<string, (event: MessageEvent) => void>()

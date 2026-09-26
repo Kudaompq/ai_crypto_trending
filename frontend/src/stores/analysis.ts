@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { api, type AnalysisResult, type Candle, type KlineData, type PriceQuote, type PriceStreamStatus } from '../services/api'
 
 const storageKey = 'crypto-trending-custom-symbols'
 const removedPresetsStorageKey = 'crypto-trending-removed-presets'
+const watchlistOrderStorageKey = 'crypto-trending-watchlist-order'
 const presets = [
     { label: 'BTC/USDT', value: 'BTCUSDT', icon: '₿' },
     { label: 'ETH/USDT', value: 'ETHUSDT', icon: 'Ξ' },
@@ -41,16 +42,53 @@ function readRemovedPresetSymbols(): string[] {
     }
 }
 
+function readWatchlistOrder(): string[] {
+    try {
+        const parsed: unknown = JSON.parse(localStorage.getItem(watchlistOrderStorageKey) || '[]')
+        if (!Array.isArray(parsed)) return []
+        return [...new Set(parsed.filter((item): item is string =>
+            typeof item === 'string' && /^[A-Z0-9]{5,30}$/.test(item)
+        ))]
+    } catch {
+        return []
+    }
+}
+
 export const useAnalysisStore = defineStore('analysis', () => {
     const customSymbols = ref<string[]>(readCustomSymbols())
     const removedPresetSymbols = ref<string[]>(readRemovedPresetSymbols())
-    const availableSymbols = computed(() => {
+    const watchlistOrder = ref(readWatchlistOrder())
+    const unorderedAvailableSymbols = computed(() => {
         const visiblePresets = presets.filter(item => !removedPresetSymbols.value.includes(item.value))
         const custom = customSymbols.value.map(value => ({ label: value, value, icon: '☆' }))
         const available = [...visiblePresets, ...custom]
         return available.length > 0 ? available : [presets[0]!]
     })
+    const availableSymbols = computed(() => {
+        const byValue = new Map(unorderedAvailableSymbols.value.map(item => [item.value, item]))
+        const orderedValues = watchlistOrder.value.filter(value => byValue.has(value))
+        for (const item of unorderedAvailableSymbols.value) {
+            if (!orderedValues.includes(item.value)) orderedValues.push(item.value)
+        }
+        return orderedValues.map(value => byValue.get(value)!)
+    })
     const storageWarning = ref<string | null>(null)
+
+    function persistWatchlistOrder() {
+        try {
+            localStorage.setItem(watchlistOrderStorageKey, JSON.stringify(availableSymbols.value.map(item => item.value)))
+            storageWarning.value = null
+        } catch {
+            storageWarning.value = 'Watchlist 顺序未能保存到浏览器，刷新后可能恢复默认顺序'
+        }
+    }
+
+    watch(availableSymbols, symbols => {
+        const normalized = symbols.map(item => item.value)
+        if (normalized.length === watchlistOrder.value.length && normalized.every((value, index) => value === watchlistOrder.value[index])) return
+        watchlistOrder.value = normalized
+        persistWatchlistOrder()
+    }, { immediate: true, flush: 'sync' })
 
     const symbol = ref(availableSymbols.value.find(item => item.value === 'ETHUSDT')?.value ?? availableSymbols.value[0]!.value)
     const interval = ref('1d')
@@ -137,6 +175,16 @@ export const useAnalysisStore = defineStore('analysis', () => {
         }
 
         if (symbol.value === value) setSymbol(availableSymbols.value[0]!.value)
+    }
+
+    function reorderSymbols(value: string, targetIndex: number) {
+        const order = availableSymbols.value.map(item => item.value)
+        const sourceIndex = order.indexOf(value)
+        if (sourceIndex < 0 || !Number.isInteger(targetIndex) || targetIndex < 0 || targetIndex >= order.length) return
+        order.splice(sourceIndex, 1)
+        order.splice(Math.min(targetIndex, order.length), 0, value)
+        watchlistOrder.value = order
+        persistWatchlistOrder()
     }
 
     function resetMarket() {
@@ -297,6 +345,6 @@ export const useAnalysisStore = defineStore('analysis', () => {
         klineData, analysisResult, lastUpdate, trendDirection, trendStrength, trendColor,
         pricesBySymbol, unavailableSymbols, priceStreamState, startWatchlistPriceStream, stopWatchlistPriceStream,
         addCustomSymbol, removeSymbol, fetchAnalysis, fetchFallbackKline,
-        updateRealtimeCandle, setSymbol, setInterval, setLimit
+        updateRealtimeCandle, setSymbol, setInterval, setLimit, reorderSymbols
     }
 })

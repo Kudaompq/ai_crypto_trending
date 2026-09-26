@@ -59,6 +59,7 @@ func newRouter() *gin.Engine {
 	analysisHandler := handler.NewAnalysisHandler(validator)
 	streamHandler := handler.NewStreamHandler(service.NewMarketStreamService(), validator)
 	priceHandler := handler.NewWatchlistPriceHandler(service.NewMarketPriceService(), validator)
+	openInterestHandler := handler.NewOpenInterestHandler(validator)
 
 	// API routes
 	api := r.Group("/api")
@@ -66,6 +67,7 @@ func newRouter() *gin.Engine {
 		api.GET("/symbols/validate", handler.ValidateSymbol(validator))
 		// K-line data endpoint
 		api.GET("/kline", klineHandler.GetKline)
+		api.GET("/open-interest", openInterestHandler.GetOpenInterest)
 
 		// Analysis endpoint
 		api.GET("/analysis", analysisHandler.GetAnalysis)

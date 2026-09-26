@@ -18,6 +18,18 @@ export interface KlineData {
   has_more_before: boolean
 }
 
+export interface OpenInterestSample {
+  timestamp: number
+  quantity: number
+  value: number
+}
+
+export interface OpenInterestData {
+  symbol: string
+  interval: string
+  data: OpenInterestSample[]
+}
+
 export interface MarketEvent {
   type: 'kline'
   symbol: string
@@ -222,6 +234,14 @@ export const api = {
   async getKlineData(symbol: string, interval: string, limit: number, endTime?: number, signal?: AbortSignal): Promise<KlineData> {
     const response = await axios.get(`${API_BASE_URL}/kline`, {
       params: { symbol, interval, limit, ...(endTime === undefined ? {} : { endTime }) },
+      signal
+    })
+    return response.data
+  },
+
+  async getOpenInterestData(symbol: string, interval: string, limit: number, startTime?: number, endTime?: number, signal?: AbortSignal): Promise<OpenInterestData> {
+    const response = await axios.get<OpenInterestData>(`${API_BASE_URL}/open-interest`, {
+      params: { symbol, interval, limit, ...(startTime === undefined ? {} : { startTime }), ...(endTime === undefined ? {} : { endTime }) },
       signal
     })
     return response.data

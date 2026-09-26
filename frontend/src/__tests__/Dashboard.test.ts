@@ -62,6 +62,7 @@ const mocks = vi.hoisted(() => ({
     setSymbol: vi.fn(),
     setInterval: vi.fn(),
     addCustomSymbol: vi.fn(),
+    reorderSymbols: vi.fn(),
     removeSymbol: vi.fn()
   }
 }))
@@ -81,6 +82,7 @@ describe('Dashboard watchlist and market controls', () => {
         { label: 'ETH/USDT', value: 'ETHUSDT', icon: 'Ξ' }
       ],
       customSymbols: [],
+      reorderSymbols: vi.fn(),
       pricesBySymbol: {
         BTCUSDT: { price: 67420.5, change24hPercent: 0.5, eventTime: 1 },
         ETHUSDT: { price: 3521.75, change24hPercent: -0.25, eventTime: 1 }
@@ -182,6 +184,30 @@ describe('Dashboard watchlist and market controls', () => {
     await deleteButton.trigger('click')
     expect(mocks.store.removeSymbol).toHaveBeenCalledWith('ETHUSDT')
 
+    wrapper.unmount()
+  })
+
+  it('reorders the watchlist with pointer input without selecting the dragged symbol', async () => {
+    const wrapper = shallowMount(Dashboard, {
+      global: { stubs: { 'el-icon': true, 'el-alert': true, Loading: true } }
+    })
+    await flushPromises()
+    const source = wrapper.find('.watchlist-item[data-symbol="BTCUSDT"]')
+    const target = wrapper.find('.watchlist-item[data-symbol="ETHUSDT"]')
+
+    await source.find('.watchlist-drag-handle').trigger('pointerdown', { pointerId: 1, pointerType: 'mouse', button: 0 })
+    await target.trigger('pointerenter', { pointerId: 1 })
+
+    expect(source.classes()).toContain('dragging')
+    expect(target.classes()).toContain('drop-target')
+    expect(target.classes()).toContain('drop-after')
+
+    await target.trigger('pointerup', { pointerId: 1 })
+
+    expect(mocks.store.reorderSymbols).toHaveBeenCalledWith('BTCUSDT', 1)
+    expect(mocks.store.setSymbol).not.toHaveBeenCalled()
+    expect(source.classes()).not.toContain('dragging')
+    expect(target.classes()).not.toContain('drop-target')
     wrapper.unmount()
   })
 

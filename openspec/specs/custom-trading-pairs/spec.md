@@ -22,6 +22,21 @@
 - **WHEN** 用户输入的交易对与预设或已有自选交易对仅大小写或首尾空白不同
 - **THEN** 系统 SHALL 不创建重复项，并告知用户该交易对已存在
 
+### Requirement: Reorder and restore the watchlist
+The system SHALL let users drag a visible watchlist symbol to a new position. The resulting order SHALL be saved in the current browser and restored after reload. Reordering SHALL not change the selected trading pair. Newly added symbols SHALL be appended to the saved order, and removed symbols SHALL no longer appear in it.
+
+#### Scenario: Move a symbol in the watchlist
+- **WHEN** the user drags a symbol before or after another visible symbol
+- **THEN** the watchlist displays the new order without changing the selected symbol
+
+#### Scenario: Restore the chosen order
+- **WHEN** the user reloads the page after reordering symbols
+- **THEN** the watchlist restores the same order
+
+#### Scenario: Add or remove a symbol after reordering
+- **WHEN** the user adds a symbol or removes a visible symbol
+- **THEN** the new symbol is appended to the watchlist order and a removed symbol is discarded from that order
+
 ### Requirement: 验证交易对
 
 系统 SHALL 将输入规范化为交易所使用的交易对标识，校验格式和 Binance 合约数据源中的可交易状态，并将“格式错误”“不受支持”与“数据源暂不可用”区分反馈。只有校验通过的交易对 SHALL 被加入自选列表。
