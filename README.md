@@ -23,6 +23,8 @@ docker compose up -d postgres
 
 打开 `http://localhost:5173`。脚本会从 `.env` 读取数据库连接配置、编译后端并启动前后端；按 Ctrl+C 停止服务。后端默认使用 8080 端口；若该端口被占用，可运行 `PORT=18080 ./start.sh`。
 
+AI 行情分析对话为可选功能。启用时，在 `.env` 中设置 `AI_CHAT_ENDPOINT`、`AI_CHAT_API_KEY` 和 `AI_CHAT_MODEL`，指向 OpenAI-compatible Chat Completions 服务；请求凭据只由后端使用。未设置这些值时，图表和 Watchlist 正常运行，对话在提交问题时提示模型服务未配置。
+
 也可以用 Docker 启动完整服务：
 
 ```bash
@@ -68,6 +70,7 @@ K 线历史数据和 OI 由后端从 Binance 获取；实时 K 线与 Watchlist 
 | `GET /api/kline?symbol=ETHUSDT&interval=1d&limit=100` | 获取历史 K 线；支持 `endTime` 毫秒时间戳分页，最多 500 根 |
 | `GET /api/open-interest?symbol=ETHUSDT&interval=1d&limit=100` | 获取 OI 历史数据；支持 `startTime` 和 `endTime` |
 | `GET /api/analysis?symbol=ETHUSDT&interval=1d&limit=100` | 获取综合分析结果 |
+| `POST /api/analysis/chat` | 基于当前交易对、周期及服务端行情上下文进行只读 AI 多轮分析 |
 | `GET /api/stream?symbol=ETHUSDT&interval=1m` | 通过 SSE 推送 K 线事件和连接状态 |
 | `GET /api/watchlist` | 获取共享 Watchlist 与版本号 |
 | `POST /api/watchlist/import-legacy` | 首次启用服务端 Watchlist 时导入旧版浏览器列表 |

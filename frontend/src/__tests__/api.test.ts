@@ -36,6 +36,21 @@ describe('frontend API surface', () => {
     })
   })
 
+  it('posts current market context selection and conversation history to the chat endpoint', async () => {
+    const result = { reply: 'Trend summary', symbol: 'BTCUSDT', interval: '1h', context_time: 123 }
+    axiosMocks.post.mockResolvedValueOnce({ data: result })
+
+    await expect(api.sendMarketAnalysisMessage({
+      symbol: 'BTCUSDT', interval: '1h', message: 'Summarize this chart', history: [{ role: 'user', content: 'Earlier question' }]
+    })).resolves.toEqual(result)
+
+    const chatCall = axiosMocks.post.mock.calls[0]
+    axiosMocks.post.mockClear()
+    expect(chatCall).toEqual(['/api/analysis/chat', {
+      symbol: 'BTCUSDT', interval: '1h', message: 'Summarize this chart', history: [{ role: 'user', content: 'Earlier question' }]
+    }])
+  })
+
   it('requests open-interest data for the selected symbol, interval, and chart range', async () => {
     const data = { symbol: 'ETHUSDT', interval: '5m', data: [{ timestamp: 1, quantity: 2, value: 3 }] }
     axiosMocks.get.mockResolvedValueOnce({ data })

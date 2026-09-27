@@ -44,6 +44,7 @@ func main() {
 	log.Println("  GET /api/health")
 	log.Println("  GET /api/kline?symbol=ETHUSDT&interval=1d&limit=100")
 	log.Println("  GET /api/analysis?symbol=ETHUSDT&interval=1d&limit=100")
+	log.Println("  POST /api/analysis/chat")
 	log.Println("  GET /api/stream?symbol=ETHUSDT&interval=1h")
 	log.Println("  GET /api/watchlist/prices?symbols=BTCUSDT,ETHUSDT")
 	log.Println("  GET /api/watchlist/stream?symbols=BTCUSDT,ETHUSDT")
@@ -70,6 +71,13 @@ func newRouter(watchlists ...*service.WatchlistService) *gin.Engine {
 	validator := service.NewSymbolValidator()
 	klineHandler := handler.NewKlineHandler(validator)
 	analysisHandler := handler.NewAnalysisHandler(validator)
+	chatProviderConfig, chatProviderConfigured := service.OpenAICompatibleConfigFromEnv()
+	var chatProvider service.ChatCompletionProvider
+	if chatProviderConfigured {
+		chatProvider = service.NewOpenAICompatibleProvider(chatProviderConfig)
+	}
+	chatService := service.NewMarketAnalysisChatService(service.NewMarketContextService(), chatProvider)
+	chatHandler := handler.NewMarketAnalysisChatHandler(validator, chatService)
 	streamHandler := handler.NewStreamHandler(service.NewMarketStreamService(), validator)
 	priceHandler := handler.NewWatchlistPriceHandler(service.NewMarketPriceService(), validator)
 	openInterestHandler := handler.NewOpenInterestHandler(validator)
@@ -87,6 +95,7 @@ func newRouter(watchlists ...*service.WatchlistService) *gin.Engine {
 
 		// Analysis endpoint
 		api.GET("/analysis", analysisHandler.GetAnalysis)
+		api.POST("/analysis/chat", chatHandler.PostMessage)
 
 		// Real-time Binance kline stream (Server-Sent Events)
 		api.GET("/stream", streamHandler.GetMarketStream)

@@ -219,6 +219,25 @@ export interface AnalysisResult {
   market_structure: MarketStructure
 }
 
+export interface MarketAnalysisChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface MarketAnalysisChatRequest {
+  symbol: string
+  interval: string
+  message: string
+  history: MarketAnalysisChatMessage[]
+}
+
+export interface MarketAnalysisChatResponse {
+  reply: string
+  symbol: string
+  interval: string
+  context_time: number
+}
+
 export const api = {
   invalidSelection(err: unknown): boolean {
     return axios.isAxiosError(err) && (err.response?.status === 400 || err.response?.status === 404)
@@ -289,6 +308,11 @@ export const api = {
     const response = await axios.get(`${API_BASE_URL}/analysis`, {
       params: { symbol, interval, limit }
     })
+    return response.data
+  },
+
+  async sendMarketAnalysisMessage(request: MarketAnalysisChatRequest): Promise<MarketAnalysisChatResponse> {
+    const response = await axios.post<MarketAnalysisChatResponse>(`${API_BASE_URL}/analysis/chat`, request)
     return response.data
   },
 

@@ -31,7 +31,11 @@ func (s *AnalysisService) PerformAnalysis(symbol, interval string, limit int) (*
 	if err != nil {
 		return nil, err
 	}
+	return s.AnalyzeCandles(symbol, interval, limit, candles)
+}
 
+// AnalyzeCandles calculates the existing analysis result from a supplied candle snapshot.
+func (s *AnalysisService) AnalyzeCandles(symbol, interval string, limit int, candles []model.Candle) (*model.AnalysisResult, error) {
 	if len(candles) < 20 {
 		return nil, fmt.Errorf("insufficient data: need at least 20 candles")
 	}

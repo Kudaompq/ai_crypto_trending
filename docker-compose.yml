@@ -35,6 +35,10 @@ services:
       - TZ=Asia/Shanghai
       - GIN_MODE=release
       - WATCHLIST_DATABASE_URL=postgres://${POSTGRES_USER:-crypto_trending}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-crypto_trending}?sslmode=disable
+      - AI_CHAT_ENDPOINT=${AI_CHAT_ENDPOINT:-}
+      - AI_CHAT_API_KEY=${AI_CHAT_API_KEY:-}
+      - AI_CHAT_MODEL=${AI_CHAT_MODEL:-}
+      - AI_CHAT_TIMEOUT=${AI_CHAT_TIMEOUT:-20s}
     networks:
       - crypto-network
     depends_on:

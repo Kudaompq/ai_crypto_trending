@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
     }),
     getWatchlistPrices: vi.fn(async () => []),
     createWatchlistPriceStream: vi.fn(() => ({ addEventListener: vi.fn(), close: vi.fn() })),
+    sendMarketAnalysisMessage: vi.fn(),
     validateSymbol: vi.fn().mockResolvedValue('ETHUSDT'),
     errorMessage: vi.fn((_error: unknown, fallback: string) => fallback),
     invalidSelection: vi.fn(() => false)
@@ -145,6 +146,41 @@ describe('Dashboard watchlist and market controls', () => {
     expect(headerContent.find('.brand-kicker').exists()).toBe(false)
     expect(headerContent.find('.logo-icon').attributes('width')).toBe('32')
     expect(headerContent.find('.logo-icon').attributes('height')).toBe('32')
+
+    wrapper.unmount()
+  })
+
+  it('places the chart before one shared Watchlist and AI analysis tab panel', async () => {
+    const wrapper = mount(Dashboard, {
+      global: { stubs: { 'el-icon': true, 'el-alert': true, Loading: true } }
+    })
+    await flushPromises()
+
+    const layoutChildren = Array.from(wrapper.get('.market-layout').element.children)
+    expect(layoutChildren[0]?.classList.contains('chart-section')).toBe(true)
+    expect(layoutChildren[1]?.classList.contains('market-sidebar')).toBe(true)
+
+    const tabs = wrapper.findAll('[role="tab"]')
+    expect(tabs.map(tab => tab.text())).toEqual(['Watchlist', 'AI 行情分析'])
+    expect(tabs[0]?.attributes('aria-selected')).toBe('true')
+    expect(tabs[1]?.attributes('aria-selected')).toBe('false')
+    expect(wrapper.find('.watchlist').exists()).toBe(true)
+
+    await tabs[1]!.trigger('click')
+    expect(tabs[1]?.attributes('aria-selected')).toBe('true')
+    expect(mocks.api.sendMarketAnalysisMessage).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
+
+  it('keeps chart-first document order for narrow-screen stacking', async () => {
+    const wrapper = mount(Dashboard, {
+      global: { stubs: { 'el-icon': true, 'el-alert': true, Loading: true } }
+    })
+    await flushPromises()
+
+    const layoutChildren = Array.from(wrapper.get('.market-layout').element.children)
+    expect(layoutChildren.map(child => (child as HTMLElement).className)).toEqual(['chart-section', 'market-sidebar'])
 
     wrapper.unmount()
   })

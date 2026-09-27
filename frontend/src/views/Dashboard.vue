@@ -63,59 +63,6 @@
 
     <!-- Main Content -->
     <div class="market-layout">
-      <aside class="watchlist" aria-label="Watchlist">
-        <div class="watchlist-heading">
-          <div>
-            <h2>Watchlist</h2>
-            <span class="watchlist-stream-status" :class="store.priceStreamState">{{ priceStreamStatusText }}</span>
-          </div>
-          <button class="symbol-action" type="button" :disabled="!store.watchlistReady" @click="showSymbolEditor = !showSymbolEditor"
-            title="添加自选交易对" aria-label="添加自选交易对">+</button>
-        </div>
-        <form v-if="showSymbolEditor" class="symbol-editor" @submit.prevent="addSymbol">
-          <input v-model="newSymbol" class="symbol-input" placeholder="如 AVAXUSDT"
-            aria-label="自选交易对" :disabled="!store.watchlistReady || symbolValidating" />
-          <button class="symbol-action" type="submit" :disabled="!store.watchlistReady || symbolValidating">
-            {{ symbolValidating ? '校验中…' : '添加' }}
-          </button>
-          <span v-if="symbolError" class="symbol-error" role="alert">{{ symbolError }}</span>
-        </form>
-        <TransitionGroup name="watchlist-order" tag="div" class="watchlist-items">
-          <div v-for="item in store.availableSymbols" :key="item.value" class="watchlist-item"
-            :class="{
-              active: store.symbol === item.value,
-              dragging: watchlistDragSymbol === item.value,
-              'drop-target': watchlistDragTarget === item.value && watchlistDragSymbol !== item.value,
-              'drop-before': isWatchlistDropBefore(item.value),
-              'drop-after': isWatchlistDropAfter(item.value)
-            }" :data-symbol="item.value"
-            @pointerenter="updateWatchlistDragTarget(item.value, $event)"
-            @pointermove="updateWatchlistDragTarget(item.value, $event)"
-            @pointerup="finishWatchlistDrag(item.value, $event)" @pointercancel="cancelWatchlistDrag">
-            <button class="watchlist-drag-handle" type="button" title="拖动调整顺序" :disabled="!store.watchlistReady"
-              :aria-label="`拖动 ${item.label} 调整顺序`"
-              @pointerdown.stop="beginWatchlistDrag(item.value, $event)">⠿</button>
-            <button class="watchlist-select" type="button" :disabled="!store.watchlistReady" :aria-label="`选择 ${item.label}`"
-              @click="selectWatchlistSymbol(item.value)">
-              <div class="watchlist-symbol-info">
-                <strong>{{ item.label }}</strong>
-                <span>{{ item.value }}</span>
-              </div>
-              <div class="watchlist-price-info">
-                <strong>{{ store.unavailableSymbols.includes(item.value)
-                  ? '暂不支持' : formatPrice(store.pricesBySymbol[item.value]?.price) }}</strong>
-                <span v-if="store.pricesBySymbol[item.value]?.change24hPercent !== undefined" class="watchlist-change"
-                  :class="(store.pricesBySymbol[item.value]?.change24hPercent ?? 0) >= 0 ? 'positive' : 'negative'">
-                  {{ formatChangePercent(store.pricesBySymbol[item.value]?.change24hPercent) }}
-                </span>
-              </div>
-            </button>
-            <button v-if="store.availableSymbols.length > 1" class="watchlist-delete" type="button" :disabled="!store.watchlistReady"
-              title="删除交易对" :aria-label="`删除 ${item.label}`" @click="removeSymbol(item.value)">×</button>
-          </div>
-        </TransitionGroup>
-      </aside>
-
       <div class="chart-section">
         <SimpleChart v-if="store.watchlistReady" v-show="store.klineData" :candles="store.klineData?.data ?? []"
           :symbol="store.symbol" :interval="store.interval" :has-more-before="store.klineData?.has_more_before ?? false"
@@ -124,6 +71,76 @@
           {{ store.loading ? '正在加载 K 线…' : '选择交易对后显示 K 线图' }}
         </div>
       </div>
+
+      <aside class="market-sidebar" aria-label="市场工具">
+        <div class="sidebar-tabs" role="tablist" aria-label="市场工具">
+          <button id="watchlist-tab" class="sidebar-tab" type="button" role="tab" aria-controls="watchlist-panel"
+            :aria-selected="activeSidebarTab === 'watchlist'" @click="activeSidebarTab = 'watchlist'">Watchlist</button>
+          <button id="analysis-tab" class="sidebar-tab" type="button" role="tab" aria-controls="analysis-panel"
+            :aria-selected="activeSidebarTab === 'analysis'" @click="activeSidebarTab = 'analysis'">AI 行情分析</button>
+        </div>
+
+        <section id="watchlist-panel" class="sidebar-tab-panel" role="tabpanel" aria-labelledby="watchlist-tab"
+          v-show="activeSidebarTab === 'watchlist'">
+          <div class="watchlist" aria-label="Watchlist">
+            <div class="watchlist-heading">
+              <div>
+                <h2>Watchlist</h2>
+                <span class="watchlist-stream-status" :class="store.priceStreamState">{{ priceStreamStatusText }}</span>
+              </div>
+              <button class="symbol-action" type="button" :disabled="!store.watchlistReady" @click="showSymbolEditor = !showSymbolEditor"
+                title="添加自选交易对" aria-label="添加自选交易对">+</button>
+            </div>
+            <form v-if="showSymbolEditor" class="symbol-editor" @submit.prevent="addSymbol">
+              <input v-model="newSymbol" class="symbol-input" placeholder="如 AVAXUSDT"
+                aria-label="自选交易对" :disabled="!store.watchlistReady || symbolValidating" />
+              <button class="symbol-action" type="submit" :disabled="!store.watchlistReady || symbolValidating">
+                {{ symbolValidating ? '校验中…' : '添加' }}
+              </button>
+              <span v-if="symbolError" class="symbol-error" role="alert">{{ symbolError }}</span>
+            </form>
+            <TransitionGroup name="watchlist-order" tag="div" class="watchlist-items">
+              <div v-for="item in store.availableSymbols" :key="item.value" class="watchlist-item"
+                :class="{
+                  active: store.symbol === item.value,
+                  dragging: watchlistDragSymbol === item.value,
+                  'drop-target': watchlistDragTarget === item.value && watchlistDragSymbol !== item.value,
+                  'drop-before': isWatchlistDropBefore(item.value),
+                  'drop-after': isWatchlistDropAfter(item.value)
+                }" :data-symbol="item.value"
+                @pointerenter="updateWatchlistDragTarget(item.value, $event)"
+                @pointermove="updateWatchlistDragTarget(item.value, $event)"
+                @pointerup="finishWatchlistDrag(item.value, $event)" @pointercancel="cancelWatchlistDrag">
+                <button class="watchlist-drag-handle" type="button" title="拖动调整顺序" :disabled="!store.watchlistReady"
+                  :aria-label="`拖动 ${item.label} 调整顺序`"
+                  @pointerdown.stop="beginWatchlistDrag(item.value, $event)">⠿</button>
+                <button class="watchlist-select" type="button" :disabled="!store.watchlistReady" :aria-label="`选择 ${item.label}`"
+                  @click="selectWatchlistSymbol(item.value)">
+                  <div class="watchlist-symbol-info">
+                    <strong>{{ item.label }}</strong>
+                    <span>{{ item.value }}</span>
+                  </div>
+                  <div class="watchlist-price-info">
+                    <strong>{{ store.unavailableSymbols.includes(item.value)
+                      ? '暂不支持' : formatPrice(store.pricesBySymbol[item.value]?.price) }}</strong>
+                    <span v-if="store.pricesBySymbol[item.value]?.change24hPercent !== undefined" class="watchlist-change"
+                      :class="(store.pricesBySymbol[item.value]?.change24hPercent ?? 0) >= 0 ? 'positive' : 'negative'">
+                      {{ formatChangePercent(store.pricesBySymbol[item.value]?.change24hPercent) }}
+                    </span>
+                  </div>
+                </button>
+                <button v-if="store.availableSymbols.length > 1" class="watchlist-delete" type="button" :disabled="!store.watchlistReady"
+                  title="删除交易对" :aria-label="`删除 ${item.label}`" @click="removeSymbol(item.value)">×</button>
+              </div>
+            </TransitionGroup>
+          </div>
+        </section>
+
+        <section id="analysis-panel" class="sidebar-tab-panel analysis-tab-panel" role="tabpanel" aria-labelledby="analysis-tab"
+          v-show="activeSidebarTab === 'analysis'">
+          <MarketAnalysisChat :symbol="store.symbol" :interval="store.interval" />
+        </section>
+      </aside>
     </div>
   </div>
 </template>
@@ -134,6 +151,7 @@ import { useAnalysisStore } from '../stores/analysis'
 import { api } from '../services/api'
 import type { MarketEvent } from '../services/api'
 import SimpleChart from '../components/SimpleChart.vue'
+import MarketAnalysisChat from '../components/MarketAnalysisChat.vue'
 
 const store = useAnalysisStore()
 const chartSymbols = computed(() => store.availableSymbols.map(item => item.value))
@@ -141,6 +159,7 @@ const showSymbolEditor = ref(false)
 const newSymbol = ref('')
 const symbolError = ref<string | null>(null)
 const symbolValidating = ref(false)
+const activeSidebarTab = ref<'watchlist' | 'analysis'>('watchlist')
 let refreshTimer: number | null = null
 let watchdogTimer: number | null = null
 let marketStream: EventSource | null = null
@@ -636,21 +655,69 @@ function formatTime(date: Date): string {
 }
 
 .market-layout {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 30vw, 400px);
   align-items: stretch;
   gap: 16px;
   min-height: 520px;
 }
 
-.watchlist {
+.market-sidebar {
   display: flex;
-  flex: 0 0 250px;
+  min-width: 0;
+  min-height: 520px;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px;
+  overflow: hidden;
   border: 1px solid #333;
   border-radius: 12px;
   background: #171717;
+}
+
+.sidebar-tabs {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: 1fr 1fr;
+  padding: 6px;
+  border-bottom: 1px solid #303030;
+  background: #141414;
+}
+
+.sidebar-tab {
+  min-height: 38px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #999;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sidebar-tab[aria-selected="true"] {
+  background: #292929;
+  color: #eee;
+  box-shadow: inset 0 0 0 1px #3b3b3b;
+}
+
+.sidebar-tab:focus-visible {
+  outline: 2px solid #8c97ff;
+  outline-offset: 1px;
+}
+
+.sidebar-tab-panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.watchlist {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
 }
 
 .watchlist-heading {
@@ -675,9 +742,11 @@ function formatTime(date: Date): string {
 
 .watchlist-items {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 6px;
   overflow-y: auto;
+  min-height: 0;
 }
 
 .watchlist-item {
@@ -741,8 +810,8 @@ function formatTime(date: Date): string {
 .watchlist-delete { flex-shrink: 0; padding: 0 4px; border: 0; background: transparent; color: #888; cursor: pointer; }
 .watchlist-delete:hover { color: #ff8a80; }
 .chart-section {
-  flex: 1;
   min-width: 0;
+  min-height: 0;
 }
 
 .chart-placeholder {
@@ -786,11 +855,13 @@ function formatTime(date: Date): string {
     flex: 0 0 auto;
   }
 
-  .market-layout { flex-direction: column; }
-  .watchlist { flex-basis: auto; }
-  .watchlist-items { max-height: none; overflow: visible; }
   .chart-placeholder { min-height: 360px; }
   .interval-buttons { width: 100%; }
   .interval-btn { padding: 8px 10px; font-size: 13px; white-space: nowrap; }
+}
+
+@media (max-width: 960px) {
+  .market-layout { grid-template-columns: minmax(0, 1fr); }
+  .market-sidebar { min-height: 460px; }
 }
 </style>
