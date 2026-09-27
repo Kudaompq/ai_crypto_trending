@@ -24,7 +24,7 @@ function makeChatResponse(analysis: string, symbol: string, interval: string, co
   }
   return {
     reply: JSON.stringify(plan), plan,
-    key_levels: { poc: null, poc_estimated: false, resistance: null, support: null },
+    key_levels: { resistance: null, support: null },
     reference_price: 100, symbol, interval, context_time
   }
 }
@@ -98,7 +98,10 @@ describe('MarketAnalysisChat', () => {
     }))
     expect(wrapper.get('[data-role="assistant"] .analysis-direction').text()).toContain('Long')
     expect(wrapper.get('[data-role="assistant"] .analysis-narrative').text()).toContain('短线结构偏强')
-    expect(wrapper.get('[data-role="assistant"] .analysis-key-level-poc').text()).toContain('未识别')
+    expect(wrapper.get('[data-role="assistant"] .analysis-section-levels').text()).toContain('阻力')
+    expect(wrapper.get('[data-role="assistant"] .analysis-section-levels').text()).toContain('支撑')
+    expect(wrapper.find('[data-role="assistant"] .analysis-key-level-poc').exists()).toBe(false)
+    expect(wrapper.get('[data-role="assistant"]').text()).not.toContain('POC')
     wrapper.unmount()
   })
 
@@ -128,7 +131,10 @@ describe('MarketAnalysisChat', () => {
     expect(card.get('.analysis-stop-loss').text()).toContain('$10.74')
     expect(card.get('.analysis-confidence').text()).toContain('72')
     expect(card.get('.analysis-margin-risk').text()).toContain('15%')
-    expect(card.get('.analysis-section-levels').text()).toContain('$11.13')
+    expect(card.get('.analysis-section-levels').text()).toContain('$11.1316')
+    expect(card.get('.analysis-section-levels').text()).toContain('$10.7442')
+    expect(card.find('.analysis-key-level-poc').exists()).toBe(false)
+    expect(card.text()).not.toContain('POC')
     expect(card.get('.analysis-market-time').attributes('data-context-time')).toBe('1758736800000')
     expect(card.text()).toContain('不含手续费、滑点和资金费率')
     wrapper.unmount()
@@ -142,7 +148,7 @@ describe('MarketAnalysisChat', () => {
         take_profit: 90, stop_loss: 110, confidence: 72,
         leverage: 3, analysis: 'invalid price order'
       },
-      key_levels: { poc: null, poc_estimated: false, resistance: null, support: null },
+      key_levels: { resistance: null, support: null },
       reference_price: 100,
       symbol: 'BTCUSDT', interval: '1h', context_time: 1
     })
@@ -167,7 +173,7 @@ describe('MarketAnalysisChat', () => {
     }
     mocks.send.mockResolvedValueOnce({
       reply: JSON.stringify(plan), plan,
-      key_levels: { poc: null, poc_estimated: false, resistance: 110, support: 95 },
+      key_levels: { resistance: 110, support: 95 },
       reference_price: 100, symbol: 'BTCUSDT', interval: '1h', context_time: 1
     })
     const wrapper = mount(MarketAnalysisChat, { props: { symbol: 'BTCUSDT', interval: '1h' } })

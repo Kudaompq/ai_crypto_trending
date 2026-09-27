@@ -43,7 +43,7 @@ describe('frontend API surface', () => {
     }
     const result = {
       reply: JSON.stringify(plan), plan,
-      key_levels: { poc: 100, poc_estimated: true, resistance: 110, support: 90 },
+      key_levels: { resistance: 110, support: 90 },
       reference_price: 100, symbol: 'BTCUSDT', interval: '1h', context_time: 123
     }
     axiosMocks.post.mockResolvedValueOnce({ data: result })

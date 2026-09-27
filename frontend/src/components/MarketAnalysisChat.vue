@@ -57,11 +57,6 @@
           <section class="analysis-section analysis-section-levels">
             <h3>关键价位</h3>
             <div class="analysis-levels-grid">
-              <div class="analysis-level-row analysis-key-level-poc">
-                <span>{{ message.keyLevels?.poc_estimated ? 'POC（估算）' : 'POC' }}</span>
-                <strong>{{ formatKeyLevel(message.keyLevels?.poc) }}</strong>
-                <small>{{ formatLevelDistance(message.keyLevels?.poc, message.referencePrice) }}</small>
-              </div>
               <div class="analysis-level-row analysis-key-level-resistance">
                 <span>阻力</span>
                 <strong>{{ formatKeyLevel(message.keyLevels?.resistance) }}</strong>
@@ -74,7 +69,7 @@
               </div>
             </div>
           </section>
-          <p class="analysis-disclaimer">AI 行情推演，仅作研究参考。POC 为最高成交量 K 线的典型价估算；止损亏损估算不含手续费、滑点和资金费率。</p>
+          <p class="analysis-disclaimer">AI 行情推演，仅作研究参考。止损亏损估算不含手续费、滑点和资金费率。</p>
         </template>
         <div v-else class="chat-message-content">{{ message.content }}</div>
         <time v-if="message.role === 'assistant' && message.contextTime"
@@ -115,7 +110,7 @@ interface DisplayMessage extends MarketAnalysisChatMessage {
 
 const suggestions = [
   { label: '生成方向分析', icon: '↗', prompt: '根据当前快照生成结构化方向分析，说明入场、止盈止损和判断依据。' },
-  { label: '查看关键价位', icon: '⌖', prompt: '解释当前方向分析引用的估算 POC、支撑和阻力，以及它们与最新收盘价的位置关系。' },
+  { label: '查看关键价位', icon: '⌖', prompt: '解释当前方向分析引用的支撑和阻力，以及它们与最新收盘价的位置关系。' },
   { label: '结构与风险', icon: '◇', prompt: '总结当前行情结构和方向计划，并说明判断失效条件。' }
 ]
 
@@ -189,8 +184,7 @@ function isValidAnalysisResponse(response: MarketAnalysisChatResponse): boolean 
   if (plan.direction === 'Short' && !(plan.take_profit < plan.entry_price && plan.entry_price < plan.stop_loss)) return false
   if (plan.direction !== 'Long' && plan.direction !== 'Short') return false
   if (plan.entry_type !== 'market' && plan.entry_type !== 'limit') return false
-  return typeof response.key_levels.poc_estimated === 'boolean' &&
-    validLevel(response.key_levels.poc) && validLevel(response.key_levels.resistance) && validLevel(response.key_levels.support)
+  return validLevel(response.key_levels.resistance) && validLevel(response.key_levels.support)
 }
 
 function formatContextTime(timestamp: number): string {
@@ -451,7 +445,6 @@ function formatMarginLoss(plan: MarketAnalysisPlan): string {
 .analysis-level-row span { color: #898790; font-size: 12px; }
 .analysis-level-row strong { color: #dddbe3; font-size: 13px; font-weight: 550; white-space: nowrap; }
 .analysis-level-row small { color: #92909a; font-size: 10px; white-space: nowrap; }
-.analysis-key-level-poc strong { color: #bdb3ff; }
 .analysis-key-level-resistance strong { color: #ff7387; }
 .analysis-key-level-support strong { color: #08d49b; }
 .analysis-disclaimer { margin: 12px 0 0; color: #77757e; font-size: 10px; line-height: 1.5; }

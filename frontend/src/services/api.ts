@@ -243,8 +243,6 @@ export interface MarketAnalysisPlan {
 }
 
 export interface MarketAnalysisKeyLevels {
-  poc: number | null
-  poc_estimated: boolean
   resistance: number | null
   support: number | null
 }

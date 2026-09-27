@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -64,8 +65,15 @@ func TestMarketAnalysisChatUsesCurrentContextAndReturnsContextTime(t *testing.T)
 	if response.Plan.Direction != "Long" || response.Plan.EntryPrice != 12 || response.Plan.TakeProfit != 13 || response.Plan.StopLoss != 11 || response.ReferencePrice != 12 {
 		t.Fatalf("structured plan or reference price was not returned: %#v", response)
 	}
-	if response.KeyLevels.POC == nil || *response.KeyLevels.POC != 12 || !response.KeyLevels.POCEstimated || response.KeyLevels.Resistance == nil || *response.KeyLevels.Resistance != 13 || response.KeyLevels.Support == nil || *response.KeyLevels.Support != 11 {
+	if response.KeyLevels.Resistance == nil || *response.KeyLevels.Resistance != 13 || response.KeyLevels.Support == nil || *response.KeyLevels.Support != 11 {
 		t.Fatalf("key levels were not derived from the current snapshot: %#v", response.KeyLevels)
+	}
+	responseJSON, err := json.Marshal(response)
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+	if strings.Contains(strings.ToLower(string(responseJSON)), "poc") {
+		t.Errorf("response must not expose POC: %s", responseJSON)
 	}
 	if contextSource.calls != 1 || provider.calls != 1 {
 		t.Fatalf("context calls=%d provider calls=%d", contextSource.calls, provider.calls)
@@ -73,10 +81,13 @@ func TestMarketAnalysisChatUsesCurrentContextAndReturnsContextTime(t *testing.T)
 	if len(provider.messages) != 4 || provider.messages[0].Role != "system" || !strings.Contains(provider.messages[0].Content, "BTCUSDT") || !strings.Contains(provider.messages[0].Content, "1700000000000") {
 		t.Fatalf("provider did not receive the current market snapshot and history: %#v", provider.messages)
 	}
-	for _, required := range []string{`"direction"`, `"entry_type"`, `"entry_price"`, `"take_profit"`, `"stop_loss"`, `"confidence"`, `"leverage"`, `"analysis"`, `"key_levels"`, `"poc":12`, `"resistance":13`, `"support":11`, `Long`, `Short`, "资金费率", "未平仓量", "爆仓分布", "JSON"} {
+	for _, required := range []string{`"direction"`, `"entry_type"`, `"entry_price"`, `"take_profit"`, `"stop_loss"`, `"confidence"`, `"leverage"`, `"analysis"`, `"key_levels"`, `"resistance":13`, `"support":11`, `Long`, `Short`, "资金费率", "未平仓量", "爆仓分布", "JSON"} {
 		if !strings.Contains(provider.messages[0].Content, required) {
 			t.Errorf("system prompt missing %q", required)
 		}
+	}
+	if strings.Contains(strings.ToLower(provider.messages[0].Content), "poc") {
+		t.Error("system prompt must not request or mention POC prices")
 	}
 	if provider.messages[1].Content != "Earlier question" || provider.messages[2].Content != "Earlier answer" || provider.messages[3] != (ChatMessage{Role: "user", Content: "What is the current structure?"}) {
 		t.Fatalf("provider received wrong conversation order: %#v", provider.messages)

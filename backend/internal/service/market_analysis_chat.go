@@ -54,10 +54,8 @@ type MarketAnalysisPlan struct {
 }
 
 type MarketAnalysisKeyLevels struct {
-	POC          *float64 `json:"poc"`
-	POCEstimated bool     `json:"poc_estimated"`
-	Resistance   *float64 `json:"resistance"`
-	Support      *float64 `json:"support"`
+	Resistance *float64 `json:"resistance"`
+	Support    *float64 `json:"support"`
 }
 
 type MarketAnalysisContext struct {
@@ -126,7 +124,7 @@ func (s *MarketAnalysisChatService) Chat(ctx context.Context, request MarketAnal
 	systemPrompt := `你是只读的 USDⓈ-M 合约行情分析助手。用简体中文，只能依据本次附带的行情快照、技术指标和关键价位作答。数据时间是快照中的最新 K 线时间。不得假称获得了未提供的数据，不得执行或声称已执行交易、修改应用数据。
 
 数据边界：当前快照包含至多 100 根所选周期 K 线及其 analysis。它不包含账户持仓、账户风险承受能力、入场历史、清算价、资金费率、未平仓量、订单簿、爆仓分布、多空账户盈亏、地址排名或其它周期数据，不得编造这些数据。` +
-		`key_levels.poc 是从最高成交量 K 线的典型价估算的 POC，不是逐笔成交量分布；只能将其称作估算值。支撑和阻力只来自 key_levels 中非空的服务端分析值，不得修改或补造关键价位。
+		`支撑和阻力只来自 key_levels 中非空的服务端分析值，不得修改或补造关键价位。
 
 只返回一个严格 JSON 对象，不要代码围栏、Markdown、前后说明或其它键。字段必须完整且类型准确：
 {"direction":"Long 或 Short","entry_type":"market 或 limit","entry_price":数字,"take_profit":数字,"stop_loss":数字,"confidence":0到100的整数,"leverage":1到5的数字,"analysis":"简体中文行情分析"}
@@ -201,23 +199,6 @@ func deriveMarketAnalysisKeyLevels(levels model.SRLevels, candles []model.Candle
 	referencePrice := candles[len(candles)-1].Close
 	if !isPositiveFinite(referencePrice) {
 		return keyLevels
-	}
-	var highestVolumeCandle *model.Candle
-	for i := range candles {
-		candle := &candles[i]
-		if !isPositiveFinite(candle.Volume) || !isPositiveFinite(candle.High) || !isPositiveFinite(candle.Low) || !isPositiveFinite(candle.Close) {
-			continue
-		}
-		if highestVolumeCandle == nil || candle.Volume >= highestVolumeCandle.Volume {
-			highestVolumeCandle = candle
-		}
-	}
-	if highestVolumeCandle != nil {
-		poc := (highestVolumeCandle.High + highestVolumeCandle.Low + highestVolumeCandle.Close) / 3
-		if isPositiveFinite(poc) {
-			keyLevels.POC = &poc
-			keyLevels.POCEstimated = true
-		}
 	}
 	keyLevels.Support = nearestSRLevel(levels.Support, referencePrice, true)
 	keyLevels.Resistance = nearestSRLevel(levels.Resistance, referencePrice, false)
