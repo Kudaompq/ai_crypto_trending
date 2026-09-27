@@ -58,6 +58,11 @@ func TestMarketAnalysisChatUsesCurrentContextAndReturnsContextTime(t *testing.T)
 	if len(provider.messages) != 4 || provider.messages[0].Role != "system" || !strings.Contains(provider.messages[0].Content, "BTCUSDT") || !strings.Contains(provider.messages[0].Content, "1700000000000") {
 		t.Fatalf("provider did not receive the current market snapshot and history: %#v", provider.messages)
 	}
+	for _, required := range []string{"观点：", "结论：", "结构依据：", "关键价位：", "风险提示：", "资金费率", "未平仓量", "爆仓分布"} {
+		if !strings.Contains(provider.messages[0].Content, required) {
+			t.Errorf("system prompt missing %q", required)
+		}
+	}
 	if provider.messages[1].Content != "Earlier question" || provider.messages[2].Content != "Earlier answer" || provider.messages[3] != (ChatMessage{Role: "user", Content: "What is the current structure?"}) {
 		t.Fatalf("provider received wrong conversation order: %#v", provider.messages)
 	}

@@ -24,6 +24,8 @@ describe('MarketAnalysisChat', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    mocks.send.mockReset()
+    mocks.errorMessage.mockReset().mockImplementation((_error: unknown, fallback: string) => fallback)
   })
 
   it('keeps history per symbol and sends the latest interval with follow-up context', async () => {
@@ -65,6 +67,29 @@ describe('MarketAnalysisChat', () => {
       ]
     })
     expect(wrapper.text()).toContain('BTC 3m follow-up')
+    wrapper.unmount()
+  })
+
+  it('offers focused questions before the first reply and renders a structured analysis card', async () => {
+    mocks.send.mockResolvedValueOnce({
+      reply: '观点：偏多\n结论：短线结构偏强，但接近阻力区。\n结构依据：价格位于 EMA 上方，MACD 信号偏多。\n关键价位：支撑 $82,000；阻力 $85,270。\n风险提示：若跌破最近支撑，偏多判断失效。',
+      symbol: 'BTCUSDT', interval: '1h', context_time: 1_758_736_800_000
+    })
+    const wrapper = mount(MarketAnalysisChat, { props: { symbol: 'BTCUSDT', interval: '1h' } })
+
+    expect(wrapper.text()).toContain('这段行情，先看什么？')
+    const trendQuestion = wrapper.get('button[aria-label="判断当前趋势"]')
+    await trendQuestion.trigger('click')
+    await flushPromises()
+
+    expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({
+      symbol: 'BTCUSDT', interval: '1h', history: [],
+      message: expect.stringContaining('判断趋势偏多、偏空、震荡还是观望')
+    }))
+    expect(wrapper.get('[data-role="assistant"] .analysis-stance').text()).toBe('偏多')
+    expect(wrapper.get('[data-role="assistant"] .analysis-summary').text()).toContain('短线结构偏强')
+    expect(wrapper.get('[data-role="assistant"] .analysis-section-levels').text()).toContain('$85,270')
+    expect(wrapper.text()).toContain('风险提示')
     wrapper.unmount()
   })
 

@@ -23,7 +23,7 @@ docker compose up -d postgres
 
 打开 `http://localhost:5173`。脚本会从 `.env` 读取数据库连接配置、编译后端并启动前后端；按 Ctrl+C 停止服务。后端默认使用 8080 端口；若该端口被占用，可运行 `PORT=18080 ./start.sh`。
 
-AI 行情分析对话为可选功能。启用时，在 `.env` 中设置 `AI_CHAT_ENDPOINT`、`AI_CHAT_API_KEY` 和 `AI_CHAT_MODEL`，指向 OpenAI-compatible Chat Completions 服务；请求凭据只由后端使用。未设置这些值时，图表和 Watchlist 正常运行，对话在提交问题时提示模型服务未配置。
+AI 行情分析对话为可选功能。启用时，在 `.env` 中设置 `AI_CHAT_ENDPOINT`、`AI_CHAT_API_KEY` 和 `AI_CHAT_MODEL`，指向 OpenAI-compatible Chat Completions 服务。`AI_CHAT_ENDPOINT` 可以是 API 基础地址（如 `https://api.deepseek.com` 或 `https://api.openai.com/v1`），后端会补上 `/chat/completions`；也可以填写完整的 Chat Completions URL。请求凭据只由后端使用。未设置这些值时，图表和 Watchlist 正常运行，对话在提交问题时提示模型服务未配置。
 
 也可以用 Docker 启动完整服务：
 

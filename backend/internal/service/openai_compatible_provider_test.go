@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -44,6 +45,36 @@ func TestOpenAICompatibleProviderSendsConfiguredRequestAndParsesReply(t *testing
 	}
 	if gotAuthorization != "Bearer test-provider-key" || gotModel != "test-model" {
 		t.Fatalf("authorization=%q model=%q", gotAuthorization, gotModel)
+	}
+}
+
+func TestOpenAICompatibleProviderAppendsChatCompletionsPathToBaseURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		basePath string
+		wantPath string
+	}{
+		{name: "root base URL", wantPath: "/chat/completions"},
+		{name: "versioned base URL", basePath: "/v1", wantPath: "/v1/chat/completions"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != tt.wantPath {
+					t.Errorf("request path = %q, want %q", r.URL.Path, tt.wantPath)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"ok"}}]}`)
+			}))
+			defer server.Close()
+
+			provider := NewOpenAICompatibleProvider(OpenAICompatibleConfig{
+				Endpoint: server.URL + tt.basePath, APIKey: "test-key", Model: "test-model",
+			})
+			if reply, err := provider.Complete(context.Background(), []ChatMessage{{Role: "user", Content: "hello"}}); err != nil || reply != "ok" {
+				t.Fatalf("Complete() = (%q, %v), want (\"ok\", nil)", reply, err)
+			}
+		})
 	}
 }
 

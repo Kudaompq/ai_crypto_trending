@@ -77,6 +77,11 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, messages []Chat
 	if err != nil || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Host == "" {
 		return "", ErrChatProviderNotConfigured
 	}
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/")
+	if !strings.HasSuffix(endpoint.Path, "/chat/completions") && endpoint.Path != "/chat/completions" {
+		endpoint.Path += "/chat/completions"
+	}
+	endpoint.RawPath = ""
 	if len(messages) == 0 {
 		return "", ErrInvalidChatRequest
 	}
