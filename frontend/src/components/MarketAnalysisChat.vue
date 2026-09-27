@@ -24,26 +24,63 @@
       </div>
       <article v-for="(message, index) in activeMessages" :key="`${symbol}-${index}`"
         class="chat-message" :class="`chat-message-${message.role}`" :data-role="message.role">
-        <template v-if="message.role === 'assistant' && message.analysis">
+        <template v-if="message.role === 'assistant' && message.plan">
           <div class="analysis-card-heading">
-            <span class="analysis-card-label">行情观点</span>
-            <span class="analysis-stance" :class="`analysis-stance-${message.analysis.tone}`">{{ message.analysis.stance }}</span>
+            <span class="analysis-direction" :class="`analysis-direction-${message.plan.direction.toLowerCase()}`">
+              <span aria-hidden="true">{{ message.plan.direction === 'Long' ? '↗' : '↘' }}</span>
+              {{ message.plan.direction }}
+            </span>
+            <span class="analysis-market-meta">{{ message.contextInterval }} · {{ message.plan.entry_type === 'market' ? '市价' : '限价' }}</span>
+            <time class="analysis-time" :datetime="new Date(message.analysisTime ?? 0).toISOString()">
+              分析时间 {{ formatAnalysisTime(message.analysisTime ?? 0) }}
+            </time>
           </div>
-          <p class="analysis-summary">{{ message.analysis.conclusion }}</p>
-          <section v-if="message.analysis.evidence" class="analysis-section">
-            <h3>结构依据</h3><p>{{ message.analysis.evidence }}</p>
+          <div class="analysis-prices">
+            <div class="analysis-price analysis-entry"><span>入场价</span><strong>{{ formatPrice(message.plan.entry_price) }}</strong></div>
+            <div class="analysis-price analysis-take-profit"><span>止盈</span><strong>{{ formatPrice(message.plan.take_profit) }}</strong></div>
+            <div class="analysis-price analysis-stop-loss"><span>止损</span><strong>{{ formatPrice(message.plan.stop_loss) }}</strong></div>
+          </div>
+          <div class="analysis-risk-row">
+            <div class="confidence-meter" :style="{ '--confidence': `${message.plan.confidence}%` }"
+              role="img" :aria-label="`置信度 ${message.plan.confidence}`">
+              <span>{{ message.plan.confidence }}</span>
+            </div>
+            <div class="analysis-risk-copy">
+              <span class="analysis-confidence">置信度 {{ message.plan.confidence }}</span>
+              <strong>建议杠杆 ~{{ formatLeverage(message.plan.leverage) }}x</strong>
+              <p class="analysis-margin-risk">打到止损约亏保证金 {{ formatMarginLoss(message.plan) }}%</p>
+            </div>
+          </div>
+          <section class="analysis-section analysis-narrative">
+            <h3>行情分析</h3><p>{{ message.plan.analysis }}</p>
           </section>
-          <section v-if="message.analysis.levels" class="analysis-section analysis-section-levels">
-            <h3>关键价位</h3><p>{{ message.analysis.levels }}</p>
+          <section class="analysis-section analysis-section-levels">
+            <h3>关键价位</h3>
+            <div class="analysis-levels-grid">
+              <div class="analysis-level-row analysis-key-level-poc">
+                <span>{{ message.keyLevels?.poc_estimated ? 'POC（估算）' : 'POC' }}</span>
+                <strong>{{ formatKeyLevel(message.keyLevels?.poc) }}</strong>
+                <small>{{ formatLevelDistance(message.keyLevels?.poc, message.referencePrice) }}</small>
+              </div>
+              <div class="analysis-level-row analysis-key-level-resistance">
+                <span>阻力</span>
+                <strong>{{ formatKeyLevel(message.keyLevels?.resistance) }}</strong>
+                <small>{{ formatLevelDistance(message.keyLevels?.resistance, message.referencePrice) }}</small>
+              </div>
+              <div class="analysis-level-row analysis-key-level-support">
+                <span>支撑</span>
+                <strong>{{ formatKeyLevel(message.keyLevels?.support) }}</strong>
+                <small>{{ formatLevelDistance(message.keyLevels?.support, message.referencePrice) }}</small>
+              </div>
+            </div>
           </section>
-          <section v-if="message.analysis.risk" class="analysis-section analysis-section-risk">
-            <h3>风险提示</h3><p>{{ message.analysis.risk }}</p>
-          </section>
+          <p class="analysis-disclaimer">AI 行情推演，仅作研究参考。POC 为最高成交量 K 线的典型价估算；止损亏损估算不含手续费、滑点和资金费率。</p>
         </template>
         <div v-else class="chat-message-content">{{ message.content }}</div>
         <time v-if="message.role === 'assistant' && message.contextTime"
+          class="analysis-market-time"
           :datetime="new Date(message.contextTime).toISOString()" :data-context-time="message.contextTime">
-          行情截至 {{ formatContextTime(message.contextTime) }} · {{ message.contextInterval }}
+          数据时间 {{ formatContextTime(message.contextTime) }} · {{ message.contextInterval }}
         </time>
       </article>
       <div v-if="isSending" class="chat-pending" role="status">正在分析 {{ symbol }}…</div>
@@ -65,27 +102,21 @@
 
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
-import { api, type MarketAnalysisChatMessage } from '../services/api'
+import { api, type MarketAnalysisChatMessage, type MarketAnalysisChatResponse, type MarketAnalysisKeyLevels, type MarketAnalysisPlan } from '../services/api'
 
 interface DisplayMessage extends MarketAnalysisChatMessage {
   contextTime?: number
   contextInterval?: string
-  analysis?: StructuredAnalysis
-}
-
-interface StructuredAnalysis {
-  stance: string
-  tone: 'bullish' | 'bearish' | 'neutral' | 'wait'
-  conclusion: string
-  evidence: string
-  levels: string
-  risk: string
+  analysisTime?: number
+  plan?: MarketAnalysisPlan
+  keyLevels?: MarketAnalysisKeyLevels
+  referencePrice?: number
 }
 
 const suggestions = [
-  { label: '判断当前趋势', icon: '↗', prompt: '基于当前提供的行情快照和指标，判断趋势偏多、偏空、震荡还是观望，并简要说明依据。' },
-  { label: '关键支撑与阻力', icon: '⌖', prompt: '根据当前分析结果，整理最近的关键支撑和阻力位，并说明当前价格所在位置。' },
-  { label: '结构与风险', icon: '◇', prompt: '总结当前趋势结构、关键价位与需要关注的风险；只使用本次提供的数据。' }
+  { label: '生成方向分析', icon: '↗', prompt: '根据当前快照生成结构化方向分析，说明入场、止盈止损和判断依据。' },
+  { label: '查看关键价位', icon: '⌖', prompt: '解释当前方向分析引用的估算 POC、支撑和阻力，以及它们与最新收盘价的位置关系。' },
+  { label: '结构与风险', icon: '◇', prompt: '总结当前行情结构和方向计划，并说明判断失效条件。' }
 ]
 
 const props = defineProps<{ symbol: string; interval: string }>()
@@ -121,12 +152,16 @@ async function sendMessage() {
     if (response.symbol !== symbol || response.interval !== interval || !Number.isFinite(response.context_time)) {
       throw new Error('分析结果与当前请求的交易对或周期不一致')
     }
+    if (!isValidAnalysisResponse(response)) {
+      throw new Error('AI 返回的分析格式无效，请重试')
+    }
     const thread = conversations[symbol] ?? (conversations[symbol] = [])
     thread.push(
       { role: 'user', content: message },
       {
         role: 'assistant', content: response.reply, contextTime: response.context_time,
-        contextInterval: response.interval, analysis: parseAnalysis(response.reply)
+        contextInterval: response.interval, analysisTime: Date.now(), plan: response.plan,
+        keyLevels: response.key_levels, referencePrice: response.reference_price
       }
     )
     if ((drafts[symbol] ?? '').trim() === message) drafts[symbol] = ''
@@ -142,37 +177,50 @@ function askSuggestion(message: string) {
   void sendMessage()
 }
 
-function parseAnalysis(reply: string): StructuredAnalysis | undefined {
-  const labels = new Map<string, string>()
-  let currentLabel = ''
-  for (const rawLine of reply.split(/\r?\n/)) {
-    const line = rawLine.trim()
-    const match = /^(观点|结论|结构依据|关键价位|风险提示)\s*[：:]\s*(.*)$/.exec(line)
-    if (match) {
-      currentLabel = match[1] ?? ''
-      if (!currentLabel) continue
-      labels.set(currentLabel, match[2] ?? '')
-    } else if (currentLabel && line) {
-      labels.set(currentLabel, `${labels.get(currentLabel)} ${line}`.trim())
-    }
-  }
-
-  const stanceLine = labels.get('观点') ?? ''
-  const stance = /(偏多|偏空|震荡|观望)/.exec(stanceLine)?.[1]
-  const conclusion = labels.get('结论')
-  if (!stance || !conclusion) return undefined
-
-  const tone: StructuredAnalysis['tone'] = stance === '偏多' ? 'bullish' : stance === '偏空' ? 'bearish' : stance === '观望' ? 'wait' : 'neutral'
-  return {
-    stance, tone, conclusion,
-    evidence: labels.get('结构依据') ?? '',
-    levels: labels.get('关键价位') ?? '',
-    risk: labels.get('风险提示') ?? ''
-  }
+function isValidAnalysisResponse(response: MarketAnalysisChatResponse): boolean {
+  const plan = response.plan
+  const validPrice = (value: number) => Number.isFinite(value) && value > 0
+  const validLevel = (value: number | null) => value === null || validPrice(value)
+  if (!plan || !response.key_levels || !validPrice(response.reference_price)) return false
+  if (!validPrice(plan.entry_price) || !validPrice(plan.take_profit) || !validPrice(plan.stop_loss)) return false
+  if (!Number.isInteger(plan.confidence) || plan.confidence < 0 || plan.confidence > 100) return false
+  if (!Number.isFinite(plan.leverage) || plan.leverage < 1 || plan.leverage > 5 || !plan.analysis.trim()) return false
+  if (plan.direction === 'Long' && !(plan.take_profit > plan.entry_price && plan.entry_price > plan.stop_loss)) return false
+  if (plan.direction === 'Short' && !(plan.take_profit < plan.entry_price && plan.entry_price < plan.stop_loss)) return false
+  if (plan.direction !== 'Long' && plan.direction !== 'Short') return false
+  if (plan.entry_type !== 'market' && plan.entry_type !== 'limit') return false
+  return typeof response.key_levels.poc_estimated === 'boolean' &&
+    validLevel(response.key_levels.poc) && validLevel(response.key_levels.resistance) && validLevel(response.key_levels.support)
 }
 
 function formatContextTime(timestamp: number): string {
   return new Date(timestamp).toLocaleString('zh-CN')
+}
+
+function formatAnalysisTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+function formatPrice(value: number): string {
+  return `$${new Intl.NumberFormat('en-US', { maximumSignificantDigits: 8 }).format(value)}`
+}
+
+function formatKeyLevel(value: number | null | undefined): string {
+  return value === null || value === undefined ? '未识别' : formatPrice(value)
+}
+
+function formatLevelDistance(value: number | null | undefined, referencePrice: number | undefined): string {
+  if (value === null || value === undefined || !referencePrice || referencePrice <= 0) return '—'
+  const difference = ((value - referencePrice) / referencePrice) * 100
+  return `${difference > 0 ? '+' : ''}${difference.toFixed(1)}%`
+}
+
+function formatLeverage(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1)
+}
+
+function formatMarginLoss(plan: MarketAnalysisPlan): string {
+  return String(Math.round(Math.abs(plan.entry_price - plan.stop_loss) / plan.entry_price * plan.leverage * 100))
 }
 </script>
 
@@ -335,40 +383,79 @@ function formatContextTime(timestamp: number): string {
 .analysis-card-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 9px;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-bottom: 18px;
 }
 
-.analysis-card-label { color: #aaa7b4; font-size: 11px; }
-
-.analysis-stance {
-  padding: 4px 9px;
-  border: 1px solid currentColor;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
+.analysis-direction {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 11px;
+  border-radius: 10px;
+  font-size: 17px;
+  font-weight: 650;
 }
 
-.analysis-stance-bullish { border-color: #135b49; background: #12392f; color: #39d3a1; }
-.analysis-stance-bearish { border-color: #73394b; background: #40242d; color: #ff718c; }
-.analysis-stance-neutral { border-color: #60532b; background: #39321f; color: #e8c76f; }
-.analysis-stance-wait { border-color: #484852; background: #303038; color: #c2c0ca; }
+.analysis-direction span { display: grid; width: 27px; height: 27px; place-items: center; border-radius: 8px; }
+.analysis-direction-long { background: #1d2926; color: #08d49b; }
+.analysis-direction-long span { background: #20352f; }
+.analysis-direction-short { background: #302126; color: #ff5475; }
+.analysis-direction-short span { background: #42262e; }
+.analysis-market-meta { padding: 5px 8px; border-radius: 8px; background: #303034; color: #a9a8b0; font-size: 11px; }
+.analysis-time { margin-left: auto; color: #95939c; font-size: 11px; }
 
-.analysis-summary {
-  margin: 0 0 14px;
-  color: #eeeef3;
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1.6;
+.analysis-prices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
 }
+
+.analysis-price { display: flex; min-width: 0; flex-direction: column; gap: 5px; }
+.analysis-price span { color: #92919a; font-size: 11px; }
+.analysis-price strong { color: #f0eff5; font-size: clamp(15px, 4.4vw, 20px); font-weight: 550; white-space: nowrap; }
+.analysis-take-profit strong { color: #08d49b; }
+.analysis-stop-loss strong { color: #ff4f70; }
+
+.analysis-risk-row { display: flex; align-items: center; gap: 12px; margin: 2px 0 18px; }
+.confidence-meter {
+  display: grid;
+  width: 56px;
+  height: 56px;
+  flex: 0 0 56px;
+  place-items: center;
+  border-radius: 50%;
+  background: conic-gradient(#ffc444 var(--confidence), #37383b 0);
+  color: #ffce50;
+  font-size: 19px;
+  font-weight: 650;
+  position: relative;
+}
+.confidence-meter::before { position: absolute; inset: 5px; border-radius: 50%; background: #202024; content: ''; }
+.confidence-meter span { z-index: 1; }
+.analysis-risk-copy { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.analysis-confidence { color: #9a98a1; font-size: 11px; }
+.analysis-risk-copy strong { color: #e8e6ed; font-size: 14px; font-weight: 550; }
+.analysis-margin-risk { margin: 0; color: #aaa8b0; font-size: 12px; }
 
 .analysis-section { margin-top: 12px; }
-.analysis-section h3 { margin: 0 0 4px; color: #9996a2; font-size: 10px; font-weight: 500; }
-.analysis-section p { margin: 0; color: #d0ced7; font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
-.analysis-section-levels p { color: #bdb3ff; }
-.analysis-section-risk { padding-top: 10px; border-top: 1px solid #34333a; }
-.analysis-section-risk p { color: #ddaeb4; }
+.analysis-section h3 { margin: 0 0 7px; color: #9996a2; font-size: 11px; font-weight: 500; }
+.analysis-section p { margin: 0; color: #d0ced7; font-size: 13px; line-height: 1.65; white-space: pre-wrap; }
+.analysis-narrative { margin-top: 14px; }
+.analysis-section-levels { padding-top: 12px; border-top: 1px solid #34333a; }
+.analysis-levels-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; }
+.analysis-level-row { display: grid; grid-template-columns: minmax(72px, 1fr) auto auto; align-items: baseline; gap: 9px; min-width: 0; }
+.analysis-level-row span { color: #898790; font-size: 12px; }
+.analysis-level-row strong { color: #dddbe3; font-size: 13px; font-weight: 550; white-space: nowrap; }
+.analysis-level-row small { color: #92909a; font-size: 10px; white-space: nowrap; }
+.analysis-key-level-poc strong { color: #bdb3ff; }
+.analysis-key-level-resistance strong { color: #ff7387; }
+.analysis-key-level-support strong { color: #08d49b; }
+.analysis-disclaimer { margin: 12px 0 0; color: #77757e; font-size: 10px; line-height: 1.5; }
+.analysis-market-time { padding-top: 8px; border-top: 1px solid #303034; color: #85838d !important; }
 
 .chat-message time {
   display: block;

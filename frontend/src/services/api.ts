@@ -231,8 +231,29 @@ export interface MarketAnalysisChatRequest {
   history: MarketAnalysisChatMessage[]
 }
 
+export interface MarketAnalysisPlan {
+  direction: 'Long' | 'Short'
+  entry_type: 'market' | 'limit'
+  entry_price: number
+  take_profit: number
+  stop_loss: number
+  confidence: number
+  leverage: number
+  analysis: string
+}
+
+export interface MarketAnalysisKeyLevels {
+  poc: number | null
+  poc_estimated: boolean
+  resistance: number | null
+  support: number | null
+}
+
 export interface MarketAnalysisChatResponse {
   reply: string
+  plan: MarketAnalysisPlan
+  key_levels: MarketAnalysisKeyLevels
+  reference_price: number
   symbol: string
   interval: string
   context_time: number

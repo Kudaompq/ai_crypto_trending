@@ -41,7 +41,7 @@ func (p *chatProviderStub) Complete(_ context.Context, _ []service.ChatMessage) 
 	if p.err != nil {
 		return "", p.err
 	}
-	return "Analysis response", nil
+	return `{"direction":"Long","entry_type":"market","entry_price":65000,"take_profit":66000,"stop_loss":64000,"confidence":72,"leverage":2,"analysis":"价格维持在关键支撑上方，若跌破支撑则判断失效。"}`, nil
 }
 
 func TestMarketAnalysisChatHandlerDoesNotExposeProviderDetails(t *testing.T) {
@@ -111,7 +111,7 @@ func TestMarketAnalysisChatHandlerValidatesSelectionAndReturnsContextTime(t *tes
 	if err := json.Unmarshal(valid.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode response: %v body=%s", err, valid.Body.String())
 	}
-	if valid.Code != http.StatusOK || body.Reply != "Analysis response" || body.Symbol != "BTCUSDT" || body.Interval != "1h" || body.ContextTime != 1_700_000_000_000 {
+	if valid.Code != http.StatusOK || body.Plan.Direction != "Long" || body.Plan.EntryPrice != 65000 || body.ReferencePrice != 65000 || body.Symbol != "BTCUSDT" || body.Interval != "1h" || body.ContextTime != 1_700_000_000_000 {
 		t.Fatalf("status=%d response=%#v body=%s", valid.Code, body, valid.Body.String())
 	}
 }

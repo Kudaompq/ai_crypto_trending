@@ -37,7 +37,15 @@ describe('frontend API surface', () => {
   })
 
   it('posts current market context selection and conversation history to the chat endpoint', async () => {
-    const result = { reply: 'Trend summary', symbol: 'BTCUSDT', interval: '1h', context_time: 123 }
+    const plan = {
+      direction: 'Long' as const, entry_type: 'market' as const, entry_price: 100,
+      take_profit: 110, stop_loss: 90, confidence: 72, leverage: 2, analysis: 'Trend summary'
+    }
+    const result = {
+      reply: JSON.stringify(plan), plan,
+      key_levels: { poc: 100, poc_estimated: true, resistance: 110, support: 90 },
+      reference_price: 100, symbol: 'BTCUSDT', interval: '1h', context_time: 123
+    }
     axiosMocks.post.mockResolvedValueOnce({ data: result })
 
     await expect(api.sendMarketAnalysisMessage({
