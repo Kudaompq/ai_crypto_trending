@@ -9,7 +9,7 @@ const { dashboardStore, apiMocks } = vi.hoisted(() => {
   const dashboardStore = {
     storageWarning: '',
     loading: false,
-    analysisResult: { indicators: { atr: null } },
+    analysisResult: null as null | { indicators: { atr: null } },
     error: null as string | null,
     symbol: 'BTCUSDT',
     interval: '1d',
@@ -73,6 +73,8 @@ vi.mock('../components/SimpleChart.vue', async () => {
 describe('Dashboard chart integration scope', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    dashboardStore.loading = false
+    dashboardStore.analysisResult = { indicators: { atr: null } }
     dashboardStore.symbol = 'BTCUSDT'
     dashboardStore.interval = '1d'
     dashboardStore.klineData = { symbol: 'BTCUSDT', interval: '1d', data: [], has_more_before: false }
@@ -96,9 +98,12 @@ describe('Dashboard chart integration scope', () => {
     wrapper.unmount()
   })
 
-  it('keeps the chart mounted but hidden while market data reloads', async () => {
+  it('keeps the chart visible and leaves loading feedback to Pro while market data reloads', async () => {
+    dashboardStore.loading = true
+    dashboardStore.analysisResult = null
     const wrapper = mount(Dashboard, { global: { stubs: { 'el-icon': true, 'el-alert': true, Loading: true } } })
     const originalChart = wrapper.get('[data-testid="integrated-chart"]').element
+    expect(wrapper.find('.loading-overlay').exists()).toBe(false)
 
     dashboardStore.klineData = null
     wrapper.vm.$forceUpdate()
@@ -107,13 +112,14 @@ describe('Dashboard chart integration scope', () => {
     const chart = wrapper.find('[data-testid="integrated-chart"]')
     expect(chart.exists()).toBe(true)
     expect(chart.element).toBe(originalChart)
-    expect(chart.element.getAttribute('style')).toContain('display: none')
+    expect(chart.element.getAttribute('style') ?? '').not.toContain('display: none')
+    expect(wrapper.find('.chart-placeholder').exists()).toBe(false)
 
     dashboardStore.klineData = { symbol: 'ETHUSDT', interval: '1d', data: [], has_more_before: false }
     wrapper.vm.$forceUpdate()
     await nextTick()
     expect(wrapper.get('[data-testid="integrated-chart"]').element).toBe(originalChart)
-    expect(wrapper.get('[data-testid="integrated-chart"]').element.getAttribute('style')).not.toContain('display: none')
+    expect(wrapper.get('[data-testid="integrated-chart"]').element.getAttribute('style') ?? '').not.toContain('display: none')
 
     wrapper.unmount()
   })

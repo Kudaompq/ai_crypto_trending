@@ -142,10 +142,43 @@ describe('Dashboard watchlist and market controls', () => {
     const headerContent = wrapper.get('.header-content')
     expect(headerContent.find('.brand-lockup').exists()).toBe(true)
     expect(headerContent.find('.header-tools .last-update').exists()).toBe(true)
+    expect(headerContent.find('.header-tools .last-update').element.children).toHaveLength(1)
+    expect(headerContent.find('.header-tools .last-update .stream-status').exists()).toBe(true)
+    expect(wrapper.find('.stream-note').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('最近行情:')
     expect(headerContent.find('.header-tools .controls .github-link').exists()).toBe(true)
     expect(headerContent.find('.brand-kicker').exists()).toBe(false)
     expect(headerContent.find('.logo-icon').attributes('width')).toBe('32')
     expect(headerContent.find('.logo-icon').attributes('height')).toBe('32')
+
+    wrapper.unmount()
+  })
+
+  it('shows online, connecting, and connection failed as the three stream states', async () => {
+    const wrapper = mount(Dashboard, {
+      global: { stubs: { 'el-icon': true, 'el-alert': true, Loading: true } }
+    })
+    await flushPromises()
+
+    const status = wrapper.get('.stream-status')
+    expect(status.text()).toBe('连接中')
+    expect(status.classes()).toContain('connecting')
+
+    streamHandlers.handlers[0]?.({
+      symbol: 'ETHUSDT', interval: '1d',
+      candle: { timestamp: 1, open: 10, high: 12, low: 9, close: 11, volume: 5 },
+      is_final: false, event_time: 1
+    })
+    await flushPromises()
+    expect(status.text()).toBe('在线')
+    expect(status.classes()).toContain('online')
+
+    mocks.store.fetchFallbackKline.mockResolvedValueOnce(false)
+    const activeStream = mocks.api.createMarketStream.mock.results[0]?.value as { onerror?: () => void }
+    activeStream.onerror?.()
+    await flushPromises()
+    expect(status.text()).toBe('连接失败')
+    expect(status.classes()).toContain('failed')
 
     wrapper.unmount()
   })

@@ -29,8 +29,6 @@
             <span class="stream-status" :class="streamState">
               {{ streamStatusText }}
             </span>
-            <span v-if="store.lastUpdate">最近行情: {{ formatTime(store.lastUpdate) }}</span>
-            <span v-if="streamNote" class="stream-note">{{ streamNote }}</span>
           </div>
           <div class="controls">
             <!-- GitHub Link -->
@@ -49,14 +47,6 @@
       <div v-if="store.storageWarning" class="symbol-error" role="alert">{{ store.storageWarning }}</div>
     </div>
 
-    <!-- Loading State -->
-    <div v-if="store.loading && !store.analysisResult" class="loading-overlay">
-      <el-icon class="is-loading" :size="60">
-        <Loading />
-      </el-icon>
-      <div class="loading-text">正在获取数据...</div>
-    </div>
-
     <!-- Error State -->
     <el-alert v-if="store.error" :title="store.error" type="error" show-icon closable @close="store.error = null"
       style="margin-bottom: 20px" />
@@ -64,12 +54,9 @@
     <!-- Main Content -->
     <div class="market-layout">
       <div class="chart-section">
-        <SimpleChart v-if="store.watchlistReady" v-show="store.klineData" :candles="store.klineData?.data ?? []"
+        <SimpleChart v-if="store.watchlistReady" :candles="store.klineData?.data ?? []"
           :symbol="store.symbol" :interval="store.interval" :has-more-before="store.klineData?.has_more_before ?? false"
           :symbols="chartSymbols" @selection-change="selectChartSelection" />
-        <div v-if="!store.klineData" class="chart-placeholder">
-          {{ store.loading ? '正在加载 K 线…' : '选择交易对后显示 K 线图' }}
-        </div>
       </div>
 
       <aside class="market-sidebar" aria-label="市场工具">
@@ -164,13 +151,11 @@ let refreshTimer: number | null = null
 let watchdogTimer: number | null = null
 let marketStream: EventSource | null = null
 let lastAnalysisRefresh = 0
-const streamState = ref<'connecting' | 'live' | 'fallback' | 'unavailable'>('connecting')
-const streamNote = ref('')
+const streamState = ref<'connecting' | 'online' | 'failed'>('connecting')
 const streamStatusText = computed(() => ({
-  connecting: '正在连接实时行情',
-  live: '实时更新',
-  fallback: '备用更新（非实时）',
-  unavailable: '行情不可用或已过期'
+  connecting: '连接中',
+  online: '在线',
+  failed: '连接失败'
 })[streamState.value])
 const priceStreamStatusText = computed(() => ({
   connecting: '报价连接中',
@@ -325,7 +310,6 @@ async function reloadMarket() {
   marketStream?.close()
   marketStream = null
   streamState.value = 'connecting'
-  streamNote.value = ''
   streamStartedAt = Date.now()
   lastLiveEventAt = 0
   lastFallbackAttempt = 0
@@ -333,19 +317,12 @@ async function reloadMarket() {
   await handleRefresh()
   if (generation !== marketGeneration) return
   if (store.invalidSymbol) {
-    streamState.value = 'unavailable'
-    streamNote.value = store.error || '该交易对不可用，请选择其他交易对'
+    streamState.value = 'failed'
     return
   }
   streamStartedAt = Date.now()
   lastFallbackAttempt = streamStartedAt
-  if (store.lastUpdate && !store.error) {
-    streamState.value = 'fallback'
-    streamNote.value = '等待实时行情，当前使用备用更新'
-  } else {
-    streamState.value = 'unavailable'
-    streamNote.value = store.error || '暂时无法获取行情数据'
-  }
+  streamState.value = store.lastUpdate && !store.error ? 'connecting' : 'failed'
   connectMarketStream()
 }
 
@@ -364,12 +341,11 @@ async function runFallback() {
   const liveAtStart = lastLiveEventAt
   fallbackGeneration = generation
   lastFallbackAttempt = Date.now()
-  streamState.value = 'fallback'
+  streamState.value = 'connecting'
   const success = await store.fetchFallbackKline()
   if (fallbackGeneration === generation) fallbackGeneration = null
   if (generation !== marketGeneration || store.invalidSymbol || lastLiveEventAt > liveAtStart) return
-  streamState.value = success ? 'fallback' : 'unavailable'
-  if (!success && !streamNote.value) streamNote.value = '备用行情获取失败'
+  streamState.value = success ? 'connecting' : 'failed'
 }
 
 function connectMarketStream() {
@@ -383,8 +359,7 @@ function connectMarketStream() {
 
     store.updateRealtimeCandle(event.candle)
     lastLiveEventAt = Date.now()
-    streamState.value = 'live'
-    streamNote.value = ''
+    streamState.value = 'online'
 
     // Price and the active candle update on every event; heavier indicator
     // calculations run at most once every 15 seconds or when a candle closes.
@@ -392,17 +367,17 @@ function connectMarketStream() {
     if (event.is_final || analysisIsStale) {
       void handleRefresh()
     }
-  }, (status) => {
+  }, status => {
     if (generation !== marketGeneration || status.symbol !== store.symbol || status.interval !== store.interval) return
     if (status.state === 'reconnecting') {
-      streamNote.value = status.message
+      streamState.value = 'connecting'
       void runFallback()
     }
   })
 
   marketStream.onerror = () => {
     if (generation !== marketGeneration) return
-    streamNote.value = '行情连接中断，正在重试'
+    streamState.value = 'connecting'
     void runFallback()
     if (validatingStreamError) return
     validatingStreamError = true
@@ -411,22 +386,11 @@ function connectMarketStream() {
       marketStream?.close()
       store.invalidSymbol = true
       store.error = api.errorMessage(err, '该交易对不可用')
-      streamNote.value = store.error
-      streamState.value = 'unavailable'
+      streamState.value = 'failed'
     }).finally(() => { validatingStreamError = false })
   }
 }
 
-function formatTime(date: Date): string {
-  return date.toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  })
-}
 </script>
 
 <style scoped>
@@ -465,15 +429,14 @@ function formatTime(date: Date): string {
   background: currentColor;
 }
 
-.stream-status.live {
+.stream-status.online {
   color: #26a69a;
   background: rgba(38, 166, 154, 0.08);
   border-color: rgba(38, 166, 154, 0.2);
 }
 
-.stream-status.fallback { color: #ffa726; }
-.stream-status.unavailable { color: #ef5350; }
-.stream-note { color: #8994a5; }
+.stream-status.connecting { color: #ffa726; }
+.stream-status.failed { color: #ef5350; }
 
 .header-content {
   display: flex;
@@ -632,20 +595,6 @@ function formatTime(date: Date): string {
 
 .interval-btn.active::before {
   opacity: 1;
-}
-
-.loading-overlay {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 100px 0;
-  gap: 20px;
-}
-
-.loading-text {
-  font-size: 18px;
-  color: #999;
 }
 
 .content {
@@ -814,16 +763,6 @@ function formatTime(date: Date): string {
   min-height: 0;
 }
 
-.chart-placeholder {
-  display: grid;
-  min-height: 500px;
-  place-items: center;
-  border: 1px solid #333;
-  border-radius: 12px;
-  color: #999;
-  background: #171717;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .watchlist-item.watchlist-order-move,
   .watchlist-item {
@@ -855,7 +794,6 @@ function formatTime(date: Date): string {
     flex: 0 0 auto;
   }
 
-  .chart-placeholder { min-height: 360px; }
   .interval-buttons { width: 100%; }
   .interval-btn { padding: 8px 10px; font-size: 13px; white-space: nowrap; }
 }
