@@ -9,6 +9,8 @@ import { api } from '../services/api'
 const chartMocks = vi.hoisted(() => {
   const overlays = new Map<string, Record<string, any>>()
   const instances: Array<{ options: any; chart: any }> = []
+  const paneHeights = new Map<string, number>()
+  const paneIndicators = new Map<string, Map<string, any>>()
   const coreOriginal = {
     createIndicator: vi.fn((_value?: unknown, _isStack?: boolean) => 'pane-1'),
     overrideIndicator: vi.fn((value?: Record<string, any>, paneId?: string, _callback?: unknown) => {
@@ -20,9 +22,12 @@ const chartMocks = vi.hoisted(() => {
       }
     }),
     removeIndicator: vi.fn((_paneId?: unknown, _name?: unknown) => undefined),
-    getIndicatorByPaneId: vi.fn((_paneId?: string) => new Map()),
-    getSize: vi.fn(() => ({ width: 800, height: 160 })),
-    setPaneOptions: vi.fn((_options: unknown) => undefined),
+    getIndicatorByPaneId: vi.fn((paneId?: string) => paneId ? paneIndicators.get(paneId) : paneIndicators),
+    getSize: vi.fn((paneId?: string) => ({ width: 800, height: paneId ? paneHeights.get(paneId) ?? 160 : 500 })),
+    setPaneOptions: vi.fn((options: unknown) => {
+      const pane = options as { id?: string; height?: number }
+      if (pane.id && pane.height) paneHeights.set(pane.id, pane.height)
+    }),
     getDataList: vi.fn(() => []),
     getStyles: vi.fn(() => ({ indicator: { lines: [{ style: 'solid', size: 1, color: '#999999', dashedValue: [], smooth: false }] } })),
     resize: vi.fn(),
@@ -58,7 +63,7 @@ const chartMocks = vi.hoisted(() => {
     instances.push({ options, chart })
     return chart
   })
-  return { overlays, instances, coreChart, coreOriginal, constructors, indicator: null as any, resizeObservers: [] as Array<{ observe: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }> }
+  return { overlays, instances, paneHeights, paneIndicators, coreChart, coreOriginal, constructors, indicator: null as any, resizeObservers: [] as Array<{ observe: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }> }
 })
 
 vi.mock('@klinecharts/pro', () => ({
@@ -98,12 +103,14 @@ describe('SimpleChart Pro integration', () => {
     localStorage.clear()
     chartMocks.instances.length = 0
     chartMocks.overlays.clear()
+    chartMocks.paneHeights.clear()
+    chartMocks.paneIndicators.clear()
     chartMocks.constructors.mockClear()
     Object.assign(chartMocks.coreChart, chartMocks.coreOriginal)
+    chartMocks.coreOriginal.getIndicatorByPaneId.mockReset().mockImplementation(paneId => paneId ? chartMocks.paneIndicators.get(paneId) : chartMocks.paneIndicators)
     Object.values(chartMocks.coreOriginal).forEach(mock => mock.mockClear())
     chartMocks.resizeObservers.length = 0
     chartMocks.indicator = null
-    chartMocks.coreOriginal.getIndicatorByPaneId.mockReturnValue(new Map())
     vi.mocked(api.getKlineData).mockReset().mockResolvedValue({ symbol: 'ETHUSDT', interval: '5m', data: [], has_more_before: true })
     vi.mocked(api.getOpenInterestData).mockReset().mockResolvedValue({ symbol: 'ETHUSDT', interval: '5m', data: [] })
     vi.mocked(api.errorMessage).mockImplementation((_error, fallback) => fallback)
@@ -165,24 +172,41 @@ describe('SimpleChart Pro integration', () => {
     const wrapper = mount(SimpleChart, { props: { symbol: 'ETHUSDT', interval: '5m', candles } })
     await flushTimers()
 
-    expect(chartMocks.coreOriginal.setPaneOptions).toHaveBeenCalledWith(expect.objectContaining({ id: 'macd-pane', height: 160 }))
-    expect(chartMocks.coreOriginal.setPaneOptions).toHaveBeenCalledWith(expect.objectContaining({ id: 'oi-pane', height: 160 }))
+    expect(chartMocks.coreOriginal.setPaneOptions).toHaveBeenCalledWith(expect.objectContaining({ id: 'macd-pane', height: 120, minHeight: 120, dragEnabled: false }))
+    expect(chartMocks.coreOriginal.setPaneOptions).toHaveBeenCalledWith(expect.objectContaining({ id: 'oi-pane', height: 120, minHeight: 120, dragEnabled: false }))
 
     chartMocks.coreChart.createIndicator('MACD', true)
-    expect(chartMocks.coreOriginal.createIndicator).toHaveBeenCalledWith('MACD', true, expect.objectContaining({ height: 160 }), undefined)
+    expect(chartMocks.coreOriginal.createIndicator).toHaveBeenCalledWith('MACD', true, expect.objectContaining({ height: 120, minHeight: 120, dragEnabled: false }), undefined)
     wrapper.unmount()
   })
 
-  it('collapses a hidden subchart to its header and restores its height when shown again', () => {
-    const indicators = new Map([['MACD', { visible: true }]])
-    chartMocks.coreOriginal.getIndicatorByPaneId.mockReturnValue(indicators)
+  it('extends the chart host by each subchart height so subcharts do not reduce the candle area', async () => {
+    savedStudies({
+      MACD: { enabled: true, params: [12, 26, 9] },
+      OPEN_INTEREST: { enabled: true, params: [] }
+    })
+    chartMocks.paneIndicators.set('macd-pane', new Map([['MACD', { visible: true }]]))
+    chartMocks.paneIndicators.set('oi-pane', new Map([['OPEN_INTEREST', { visible: true }]]))
+    const wrapper = mount(SimpleChart, { props: { symbol: 'ETHUSDT', interval: '5m', candles } })
+    await flushTimers()
+
+    expect((wrapper.get('.pro-chart-host').element as HTMLElement).style.getPropertyValue('--subchart-extra-height')).toBe('240px')
+    wrapper.unmount()
+  })
+
+  it('collapses a hidden subchart to its header and restores its height when shown again', async () => {
+    chartMocks.paneIndicators.set('macd-pane', new Map([['MACD', { visible: true }]]))
     const wrapper = mount(SimpleChart, { props: { symbol: 'ETHUSDT', interval: '5m', candles } })
 
     chartMocks.coreChart.overrideIndicator({ name: 'MACD', visible: false }, 'macd-pane')
-    expect(chartMocks.coreOriginal.setPaneOptions).toHaveBeenCalledWith({ id: 'macd-pane', height: 36, minHeight: 32 })
+    expect(chartMocks.coreOriginal.setPaneOptions).toHaveBeenCalledWith({ id: 'macd-pane', height: 36, minHeight: 32, dragEnabled: false })
+    await flushPromises()
+    expect((wrapper.get('.pro-chart-host').element as HTMLElement).style.getPropertyValue('--subchart-extra-height')).toBe('36px')
 
     chartMocks.coreChart.overrideIndicator({ name: 'MACD', visible: true }, 'macd-pane')
-    expect(chartMocks.coreOriginal.setPaneOptions).toHaveBeenLastCalledWith({ id: 'macd-pane', height: 160, minHeight: 120 })
+    expect(chartMocks.coreOriginal.setPaneOptions).toHaveBeenLastCalledWith({ id: 'macd-pane', height: 120, minHeight: 120, dragEnabled: false })
+    await flushPromises()
+    expect((wrapper.get('.pro-chart-host').element as HTMLElement).style.getPropertyValue('--subchart-extra-height')).toBe('120px')
     wrapper.unmount()
   })
 
@@ -191,11 +215,9 @@ describe('SimpleChart Pro integration', () => {
     chartMocks.coreChart.createIndicator('MACD', true)
     chartMocks.coreChart.createIndicator('OPEN_INTEREST', true)
     chartMocks.coreChart.createIndicator('RSI', true)
-    chartMocks.coreOriginal.getIndicatorByPaneId.mockReturnValue(new Map([
-      ['macd-pane', new Map([['MACD', { visible: true }]])],
-      ['oi-pane', new Map([['OPEN_INTEREST', { visible: true }]])],
-      ['rsi-pane', new Map([['RSI', { visible: false }]])]
-    ]))
+    chartMocks.paneIndicators.set('macd-pane', new Map([['MACD', { visible: true }]]))
+    chartMocks.paneIndicators.set('oi-pane', new Map([['OPEN_INTEREST', { visible: true }]]))
+    chartMocks.paneIndicators.set('rsi-pane', new Map([['RSI', { visible: false }]]))
 
     await wrapper.setProps({ interval: '15m' })
     expect(chartMocks.instances[1]?.options.subIndicators).toEqual(['MACD', 'OPEN_INTEREST', 'RSI'])

@@ -1,6 +1,7 @@
 <template>
   <section class="chart-card">
-    <div ref="chartHost" class="pro-chart-host" role="img" :aria-label="`${symbol} ${interval} K线图`"></div>
+    <div ref="chartHost" class="pro-chart-host" :style="chartHostStyle" role="img"
+      :aria-label="`${symbol} ${interval} K线图`"></div>
     <div v-if="showEmaSettings" class="ema-dialog-backdrop" @click.self="cancelEmaSettings">
       <section class="ema-dialog" role="dialog" aria-modal="true" aria-labelledby="ema-settings-title">
         <header class="ema-dialog-header">
@@ -49,7 +50,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { KLineChartPro, loadLocales } from '@klinecharts/pro'
 import type { SymbolInfo } from '@klinecharts/pro'
 import {
@@ -133,6 +134,8 @@ const emit = defineEmits<{
 }>()
 
 const chartHost = ref<HTMLElement | null>(null)
+const subchartExtraHeight = ref(0)
+const chartHostStyle = computed(() => ({ '--subchart-extra-height': `${subchartExtraHeight.value}px` }))
 const showEmaSettings = ref(false)
 const emaSettingsDraft = ref({ params: [] as string[], colors: [] as string[] })
 const chartStorageWarning = ref('')
@@ -152,14 +155,13 @@ let lastSyncedSymbol = props.symbol
 let lastSyncedInterval = props.interval
 const overlayIds = new Set<string>()
 const studies = ref<Record<ChartStudyName, ChartStudyPreference>>(loadStudyPreferences(props.symbol))
-const DEFAULT_SUBCHART_HEIGHT = 160
+const DEFAULT_SUBCHART_HEIGHT = 120
 const MIN_SUBCHART_HEIGHT = 120
 const SUBCHART_HEADER_HEIGHT = 36
 const MIN_SUBCHART_HEADER_HEIGHT = 32
 const MAX_EMA_LINES = 6
 let activeSubIndicators: string[] | null = null
 let hiddenSubIndicators = new Set<string>()
-const expandedSubchartHeights = new Map<string, number>()
 
 function normalizeEmaColors(colors: string[] | undefined, count: number): string[] {
   return Array.from({ length: count }, (_, index) => {
@@ -227,21 +229,33 @@ function rememberSubchartSelection(chart: Chart) {
   hiddenSubIndicators = new Set(indicators.filter(indicator => !indicator.visible).map(indicator => indicator.name))
 }
 
+function updateChartHostHeight(chart: Chart) {
+  const panes = chart.getIndicatorByPaneId()
+  if (!(panes instanceof Map)) {
+    subchartExtraHeight.value = 0
+    return
+  }
+
+  let extraHeight = 0
+  for (const [paneId, indicators] of panes) {
+    if (paneId === 'candle_pane' || !(indicators instanceof Map) || indicators.size === 0) continue
+    const paneHeight = chart.getSize(paneId)?.height
+    extraHeight += paneHeight && paneHeight > 0 ? paneHeight : DEFAULT_SUBCHART_HEIGHT
+  }
+  subchartExtraHeight.value = extraHeight
+}
+
 function updateSubchartPaneVisibility(chart: Chart, paneId: string, visible: boolean) {
   const indicators = chart.getIndicatorByPaneId(paneId)
   if (!(indicators instanceof Map)) return
   const paneIndicators = indicators as Map<string, Indicator>
   const allHidden = [...paneIndicators.values()].every(indicator => !indicator.visible)
   if (visible) {
-    const height = expandedSubchartHeights.get(paneId) ?? DEFAULT_SUBCHART_HEIGHT
-    chart.setPaneOptions({ id: paneId, height, minHeight: MIN_SUBCHART_HEIGHT })
-    expandedSubchartHeights.delete(paneId)
+    chart.setPaneOptions({ id: paneId, height: DEFAULT_SUBCHART_HEIGHT, minHeight: MIN_SUBCHART_HEIGHT, dragEnabled: false })
+    updateChartHostHeight(chart)
   } else if (allHidden) {
-    if (!expandedSubchartHeights.has(paneId)) {
-      const height = chart.getSize(paneId)?.height
-      expandedSubchartHeights.set(paneId, height && height > SUBCHART_HEADER_HEIGHT ? height : DEFAULT_SUBCHART_HEIGHT)
-    }
-    chart.setPaneOptions({ id: paneId, height: SUBCHART_HEADER_HEIGHT, minHeight: MIN_SUBCHART_HEADER_HEIGHT })
+    chart.setPaneOptions({ id: paneId, height: SUBCHART_HEADER_HEIGHT, minHeight: MIN_SUBCHART_HEADER_HEIGHT, dragEnabled: false })
+    updateChartHostHeight(chart)
   }
 }
 
@@ -365,7 +379,12 @@ function installStudyPreferenceBridge(chart: Chart) {
         }
       }
       if ((studyName === 'MACD' || studyName === 'OPEN_INTEREST') && !paneOptions?.height) {
-        createPaneOptions = { ...paneOptions, height: DEFAULT_SUBCHART_HEIGHT, minHeight: MIN_SUBCHART_HEIGHT }
+        createPaneOptions = {
+          ...paneOptions,
+          height: DEFAULT_SUBCHART_HEIGHT,
+          minHeight: MIN_SUBCHART_HEIGHT,
+          dragEnabled: false
+        }
       }
     }
     const created = originalCreateIndicator(createValue, isStack, createPaneOptions, callback)
@@ -374,6 +393,10 @@ function installStudyPreferenceBridge(chart: Chart) {
       setStudyPreference(studyName, { ...studies.value[studyName], enabled: true, params: [...requested] })
       if (studyName === 'EMA') openEmaSettings()
       if (studyName === 'OPEN_INTEREST') scheduleOpenInterestRefresh()
+    }
+    if (created && created !== 'candle_pane') {
+      chart.setPaneOptions({ id: created, height: DEFAULT_SUBCHART_HEIGHT, minHeight: MIN_SUBCHART_HEIGHT, dragEnabled: false })
+      updateChartHostHeight(chart)
     }
     return created
   }) as Chart['createIndicator']
@@ -384,6 +407,7 @@ function installStudyPreferenceBridge(chart: Chart) {
     const removed = name ? [chartStudyName(name)].filter((item): item is ChartStudyName => item !== null) : Object.keys(studies.value) as ChartStudyName[]
     for (const studyName of removed) setStudyPreference(studyName, { ...studies.value[studyName], enabled: false })
     if (removed.includes('OPEN_INTEREST')) cancelOpenInterestRequest()
+    updateChartHostHeight(chart)
   }) as Chart['removeIndicator']
 
   const originalOverrideIndicator = chart.overrideIndicator.bind(chart)
@@ -610,9 +634,10 @@ function setDefaultSubchartHeights(chart: Chart) {
   for (const [paneId, indicators] of panes) {
     const names = indicators instanceof Map ? [...indicators.keys()] : []
     if (paneId !== 'candle_pane' && names.length > 0) {
-      chart.setPaneOptions({ id: paneId, height: DEFAULT_SUBCHART_HEIGHT, minHeight: MIN_SUBCHART_HEIGHT })
+      chart.setPaneOptions({ id: paneId, height: DEFAULT_SUBCHART_HEIGHT, minHeight: MIN_SUBCHART_HEIGHT, dragEnabled: false })
     }
   }
+  updateChartHostHeight(chart)
 }
 
 function createChartDatafeed() {
@@ -670,7 +695,6 @@ function recreateProChart(saveCurrentDrawings = true) {
   if (!container || !proChart) return
 
   if (saveCurrentDrawings) saveDrawingsNow()
-  expandedSubchartHeights.clear()
   if (openInterestTimer !== null) clearTimeout(openInterestTimer)
   openInterestTimer = null
   cancelOpenInterestRequest()
@@ -917,7 +941,7 @@ onBeforeUnmount(() => {
 
 .pro-chart-host {
   width: 100%;
-  height: clamp(460px, 68vh, 850px);
+  height: calc(clamp(460px, 68vh, 850px) + var(--subchart-extra-height, 0px));
   min-height: 460px;
 }
 
