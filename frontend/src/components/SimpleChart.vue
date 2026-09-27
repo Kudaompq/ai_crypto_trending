@@ -154,7 +154,12 @@ const overlayIds = new Set<string>()
 const studies = ref<Record<ChartStudyName, ChartStudyPreference>>(loadStudyPreferences(props.symbol))
 const DEFAULT_SUBCHART_HEIGHT = 160
 const MIN_SUBCHART_HEIGHT = 120
+const SUBCHART_HEADER_HEIGHT = 36
+const MIN_SUBCHART_HEADER_HEIGHT = 32
 const MAX_EMA_LINES = 6
+let activeSubIndicators: string[] | null = null
+let hiddenSubIndicators = new Set<string>()
+const expandedSubchartHeights = new Map<string, number>()
 
 function normalizeEmaColors(colors: string[] | undefined, count: number): string[] {
   return Array.from({ length: count }, (_, index) => {
@@ -205,6 +210,45 @@ function periodInfo(interval: string): BinanceProPeriod {
 
 function selectedIndicators(names: ChartStudyName[]): string[] {
   return names.filter(name => studies.value[name].enabled)
+}
+
+function getSubchartIndicators(chart: Chart): Array<{ paneId: string; name: string; visible: boolean }> {
+  const panes = chart.getIndicatorByPaneId()
+  if (!(panes instanceof Map)) return []
+  return [...panes].flatMap(([paneId, indicators]) => {
+    if (paneId === 'candle_pane' || !(indicators instanceof Map)) return []
+    return [...indicators].map(([name, indicator]) => ({ paneId, name, visible: indicator.visible }))
+  })
+}
+
+function rememberSubchartSelection(chart: Chart) {
+  const indicators = getSubchartIndicators(chart)
+  activeSubIndicators = [...new Set(indicators.map(indicator => indicator.name))]
+  hiddenSubIndicators = new Set(indicators.filter(indicator => !indicator.visible).map(indicator => indicator.name))
+}
+
+function updateSubchartPaneVisibility(chart: Chart, paneId: string, visible: boolean) {
+  const indicators = chart.getIndicatorByPaneId(paneId)
+  if (!(indicators instanceof Map)) return
+  const paneIndicators = indicators as Map<string, Indicator>
+  const allHidden = [...paneIndicators.values()].every(indicator => !indicator.visible)
+  if (visible) {
+    const height = expandedSubchartHeights.get(paneId) ?? DEFAULT_SUBCHART_HEIGHT
+    chart.setPaneOptions({ id: paneId, height, minHeight: MIN_SUBCHART_HEIGHT })
+    expandedSubchartHeights.delete(paneId)
+  } else if (allHidden) {
+    if (!expandedSubchartHeights.has(paneId)) {
+      const height = chart.getSize(paneId)?.height
+      expandedSubchartHeights.set(paneId, height && height > SUBCHART_HEADER_HEIGHT ? height : DEFAULT_SUBCHART_HEIGHT)
+    }
+    chart.setPaneOptions({ id: paneId, height: SUBCHART_HEADER_HEIGHT, minHeight: MIN_SUBCHART_HEADER_HEIGHT })
+  }
+}
+
+function restoreHiddenSubcharts(chart: Chart) {
+  for (const { paneId, name } of getSubchartIndicators(chart)) {
+    if (hiddenSubIndicators.has(name)) chart.overrideIndicator({ name, visible: false }, paneId)
+  }
 }
 
 function selectionRequested(selection: { symbol: string; interval: string }) {
@@ -351,6 +395,13 @@ function installStudyPreferenceBridge(chart: Chart) {
     }
     originalOverrideIndicator(override, paneId, callback)
     if (name && override.calcParams) setStudyPreference(name, { ...studies.value[name], params: [...override.calcParams as number[]] })
+    if (paneId && paneId !== 'candle_pane' && typeof override.visible === 'boolean') {
+      if (name) {
+        if (override.visible) hiddenSubIndicators.delete(name)
+        else hiddenSubIndicators.add(name)
+      }
+      updateSubchartPaneVisibility(chart, paneId, override.visible)
+    }
   }) as Chart['overrideIndicator']
 }
 
@@ -528,6 +579,7 @@ function syncChartScope(symbol: string, interval: string) {
   if (!proChart || (symbol === lastSyncedSymbol && interval === lastSyncedInterval)) return
 
   saveDrawingsNow()
+  if (coreChart) rememberSubchartSelection(coreChart)
   const symbolChanged = symbol !== lastSyncedSymbol
   lastSyncedSymbol = symbol
   lastSyncedInterval = interval
@@ -557,7 +609,7 @@ function setDefaultSubchartHeights(chart: Chart) {
   if (!(panes instanceof Map)) return
   for (const [paneId, indicators] of panes) {
     const names = indicators instanceof Map ? [...indicators.keys()] : []
-    if (names.some(name => name === 'MACD' || name === 'OPEN_INTEREST')) {
+    if (paneId !== 'candle_pane' && names.length > 0) {
       chart.setPaneOptions({ id: paneId, height: DEFAULT_SUBCHART_HEIGHT, minHeight: MIN_SUBCHART_HEIGHT })
     }
   }
@@ -590,7 +642,7 @@ function initializeProChart(container: HTMLElement) {
     timezone: 'Asia/Shanghai',
     watermark: '',
     mainIndicators: selectedIndicators(['MA', 'EMA', 'BOLL']),
-    subIndicators: selectedIndicators(['MACD', 'OPEN_INTEREST']),
+    subIndicators: activeSubIndicators ?? selectedIndicators(['MACD', 'OPEN_INTEREST']),
     drawingBarVisible: true
   })
 
@@ -603,6 +655,7 @@ function initializeProChart(container: HTMLElement) {
   setDefaultSubchartHeights(coreChart)
   installOverlayPreferenceBridge(coreChart)
   setInitialStudyParameters(coreChart)
+  restoreHiddenSubcharts(coreChart)
   restoreDrawings(activeDrawingSymbol)
   scheduleOpenInterestRefresh()
 
@@ -617,6 +670,7 @@ function recreateProChart(saveCurrentDrawings = true) {
   if (!container || !proChart) return
 
   if (saveCurrentDrawings) saveDrawingsNow()
+  expandedSubchartHeights.clear()
   if (openInterestTimer !== null) clearTimeout(openInterestTimer)
   openInterestTimer = null
   cancelOpenInterestRequest()

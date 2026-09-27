@@ -11,9 +11,17 @@ const chartMocks = vi.hoisted(() => {
   const instances: Array<{ options: any; chart: any }> = []
   const coreOriginal = {
     createIndicator: vi.fn((_value?: unknown, _isStack?: boolean) => 'pane-1'),
-    overrideIndicator: vi.fn((_value?: unknown, _paneId?: unknown, _callback?: unknown) => undefined),
+    overrideIndicator: vi.fn((value?: Record<string, any>, paneId?: string, _callback?: unknown) => {
+      if (value?.visible === undefined || !paneId) return
+      const indicators = coreOriginal.getIndicatorByPaneId(paneId)
+      if (indicators instanceof Map) {
+        const indicator = indicators.get(value.name)
+        if (indicator) indicator.visible = value.visible
+      }
+    }),
     removeIndicator: vi.fn((_paneId?: unknown, _name?: unknown) => undefined),
-    getIndicatorByPaneId: vi.fn(() => new Map()),
+    getIndicatorByPaneId: vi.fn((_paneId?: string) => new Map()),
+    getSize: vi.fn(() => ({ width: 800, height: 160 })),
     setPaneOptions: vi.fn((_options: unknown) => undefined),
     getDataList: vi.fn(() => []),
     getStyles: vi.fn(() => ({ indicator: { lines: [{ style: 'solid', size: 1, color: '#999999', dashedValue: [], smooth: false }] } })),
@@ -162,6 +170,38 @@ describe('SimpleChart Pro integration', () => {
 
     chartMocks.coreChart.createIndicator('MACD', true)
     expect(chartMocks.coreOriginal.createIndicator).toHaveBeenCalledWith('MACD', true, expect.objectContaining({ height: 160 }), undefined)
+    wrapper.unmount()
+  })
+
+  it('collapses a hidden subchart to its header and restores its height when shown again', () => {
+    const indicators = new Map([['MACD', { visible: true }]])
+    chartMocks.coreOriginal.getIndicatorByPaneId.mockReturnValue(indicators)
+    const wrapper = mount(SimpleChart, { props: { symbol: 'ETHUSDT', interval: '5m', candles } })
+
+    chartMocks.coreChart.overrideIndicator({ name: 'MACD', visible: false }, 'macd-pane')
+    expect(chartMocks.coreOriginal.setPaneOptions).toHaveBeenCalledWith({ id: 'macd-pane', height: 36, minHeight: 32 })
+
+    chartMocks.coreChart.overrideIndicator({ name: 'MACD', visible: true }, 'macd-pane')
+    expect(chartMocks.coreOriginal.setPaneOptions).toHaveBeenLastCalledWith({ id: 'macd-pane', height: 160, minHeight: 120 })
+    wrapper.unmount()
+  })
+
+  it('keeps every selected subchart when the symbol or period changes', async () => {
+    const wrapper = mount(SimpleChart, { props: { symbol: 'ETHUSDT', interval: '5m', candles } })
+    chartMocks.coreChart.createIndicator('MACD', true)
+    chartMocks.coreChart.createIndicator('OPEN_INTEREST', true)
+    chartMocks.coreChart.createIndicator('RSI', true)
+    chartMocks.coreOriginal.getIndicatorByPaneId.mockReturnValue(new Map([
+      ['macd-pane', new Map([['MACD', { visible: true }]])],
+      ['oi-pane', new Map([['OPEN_INTEREST', { visible: true }]])],
+      ['rsi-pane', new Map([['RSI', { visible: false }]])]
+    ]))
+
+    await wrapper.setProps({ interval: '15m' })
+    expect(chartMocks.instances[1]?.options.subIndicators).toEqual(['MACD', 'OPEN_INTEREST', 'RSI'])
+    expect(chartMocks.coreOriginal.overrideIndicator).toHaveBeenCalledWith({ name: 'RSI', visible: false }, 'rsi-pane', undefined)
+    await wrapper.setProps({ symbol: 'BTCUSDT' })
+    expect(chartMocks.instances[2]?.options.subIndicators).toEqual(['MACD', 'OPEN_INTEREST', 'RSI'])
     wrapper.unmount()
   })
 
