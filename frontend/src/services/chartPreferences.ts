@@ -5,6 +5,7 @@ export type ChartStudyName = 'MA' | 'EMA' | 'BOLL' | 'MACD' | 'OPEN_INTEREST'
 export interface ChartStudyPreference {
   enabled: boolean
   params: number[]
+  colors?: string[]
 }
 export interface SavedChartDrawing {
   id: string
@@ -22,11 +23,12 @@ export interface SymbolChartPreferences {
 
 export const DEFAULT_STUDY_PREFERENCES: Record<ChartStudyName, ChartStudyPreference> = {
   MA: { enabled: false, params: [5, 10, 30, 60] },
-  EMA: { enabled: false, params: [6, 12, 20] },
+  EMA: { enabled: false, params: [6, 12, 20], colors: ['#ff9800', '#2196f3', '#e91e63'] },
   BOLL: { enabled: false, params: [20, 2] },
   MACD: { enabled: false, params: [12, 26, 9] },
   OPEN_INTEREST: { enabled: false, params: [] }
 }
+export const DEFAULT_EMA_COLORS = DEFAULT_STUDY_PREFERENCES.EMA.colors!
 
 const studyNames: ChartStudyName[] = ['MA', 'EMA', 'BOLL', 'MACD', 'OPEN_INTEREST']
 const drawingNames = new Set([
@@ -73,8 +75,16 @@ function validDrawing(value: unknown): value is SavedChartDrawing {
 function copyStudies(value: Partial<Record<ChartStudyName, ChartStudyPreference>>): Partial<Record<ChartStudyName, ChartStudyPreference>> {
   return Object.fromEntries(Object.entries(value).map(([name, preference]) => [
     name,
-    preference ? { enabled: preference.enabled, params: [...preference.params] } : preference
+    preference ? {
+      enabled: preference.enabled,
+      params: [...preference.params],
+      ...(preference.colors ? { colors: [...preference.colors] } : {})
+    } : preference
   ])) as Partial<Record<ChartStudyName, ChartStudyPreference>>
+}
+
+function validStudyColor(color: unknown): color is string {
+  return typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color)
 }
 
 function parseStudies(value: unknown): Partial<Record<ChartStudyName, ChartStudyPreference>> {
@@ -85,7 +95,10 @@ function parseStudies(value: unknown): Partial<Record<ChartStudyName, ChartStudy
     if (!isRecord(study) || typeof study.enabled !== 'boolean' || !Array.isArray(study.params)) continue
     const params = study.params.filter((param): param is number => typeof param === 'number' && Number.isFinite(param))
     if (params.length !== study.params.length || !validateChartStudyParameters(name, params).valid) continue
-    studies[name] = { enabled: study.enabled, params }
+    const colors = name === 'EMA' && Array.isArray(study.colors) && study.colors.length === params.length && study.colors.every(validStudyColor)
+      ? [...study.colors] as string[]
+      : undefined
+    studies[name] = { enabled: study.enabled, params, ...(colors ? { colors } : {}) }
   }
   return studies
 }
@@ -168,7 +181,13 @@ function normalizePreferences(value: SymbolChartPreferences): SymbolChartPrefere
     if (study === undefined) continue
     if (!isRecord(study) || typeof study.enabled !== 'boolean' || !Array.isArray(study.params) ||
       !study.params.every(param => typeof param === 'number') || !validateChartStudyParameters(name, study.params as number[]).valid) return null
-    preferences.studies[name] = { enabled: study.enabled, params: [...study.params] as number[] }
+    const colors = study.colors
+    if (colors !== undefined && (!Array.isArray(colors) || !colors.every(validStudyColor) || (name === 'EMA' && colors.length !== study.params.length))) return null
+    preferences.studies[name] = {
+      enabled: study.enabled,
+      params: [...study.params] as number[],
+      ...(colors ? { colors: [...colors] } : {})
+    }
   }
   if (!value.drawings.every(validDrawing)) return null
   preferences.drawings = value.drawings.map(drawing => ({

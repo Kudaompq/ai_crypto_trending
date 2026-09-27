@@ -13,7 +13,10 @@ const chartMocks = vi.hoisted(() => {
     createIndicator: vi.fn((_value?: unknown, _isStack?: boolean) => 'pane-1'),
     overrideIndicator: vi.fn((_value?: unknown, _paneId?: unknown, _callback?: unknown) => undefined),
     removeIndicator: vi.fn((_paneId?: unknown, _name?: unknown) => undefined),
+    getIndicatorByPaneId: vi.fn(() => new Map()),
+    setPaneOptions: vi.fn((_options: unknown) => undefined),
     getDataList: vi.fn(() => []),
+    getStyles: vi.fn(() => ({ indicator: { lines: [{ style: 'solid', size: 1, color: '#999999', dashedValue: [], smooth: false }] } })),
     resize: vi.fn(),
     createOverlay: vi.fn((value: Record<string, any>) => {
       const id = value.id || `overlay-${overlays.size + 1}`
@@ -73,7 +76,7 @@ const candles = [
   { timestamp: 600_000, open: 100, high: 103, low: 99, close: 101, volume: 18 }
 ]
 
-function savedStudies(studies: Record<string, { enabled: boolean; params: number[] }>) {
+function savedStudies(studies: Record<string, { enabled: boolean; params: number[]; colors?: string[] }>) {
   localStorage.setItem(CHART_PREFERENCES_STORAGE_KEY, JSON.stringify({ version: 2, studies, symbols: {} }))
 }
 
@@ -92,6 +95,7 @@ describe('SimpleChart Pro integration', () => {
     Object.values(chartMocks.coreOriginal).forEach(mock => mock.mockClear())
     chartMocks.resizeObservers.length = 0
     chartMocks.indicator = null
+    chartMocks.coreOriginal.getIndicatorByPaneId.mockReturnValue(new Map())
     vi.mocked(api.getKlineData).mockReset().mockResolvedValue({ symbol: 'ETHUSDT', interval: '5m', data: [], has_more_before: true })
     vi.mocked(api.getOpenInterestData).mockReset().mockResolvedValue({ symbol: 'ETHUSDT', interval: '5m', data: [] })
     vi.mocked(api.errorMessage).mockImplementation((_error, fallback) => fallback)
@@ -110,7 +114,7 @@ describe('SimpleChart Pro integration', () => {
   it('loads selected shared studies and applies their saved parameters through Core', async () => {
     savedStudies({
       MA: { enabled: true, params: [7, 14, 28, 56] },
-      EMA: { enabled: true, params: [6, 12, 20] },
+      EMA: { enabled: true, params: [6, 12, 20], colors: ['#11aa22', '#bb33cc', '#4455ee'] },
       BOLL: { enabled: true, params: [14, 2.5] },
       MACD: { enabled: true, params: [8, 21, 5] },
       OPEN_INTEREST: { enabled: true, params: [] }
@@ -124,17 +128,165 @@ describe('SimpleChart Pro integration', () => {
 
     expect(chartMocks.instances[0]?.options.mainIndicators).toEqual(['MA', 'EMA', 'BOLL'])
     expect(chartMocks.instances[0]?.options.subIndicators).toEqual(['MACD', 'OPEN_INTEREST'])
-    expect(chartMocks.coreOriginal.overrideIndicator.mock.calls.map(([value]) => value)).toEqual(expect.arrayContaining([
-      { name: 'MA', calcParams: [7, 14, 28, 56] },
-      { name: 'EMA', calcParams: [6, 12, 20] },
-      { name: 'BOLL', calcParams: [14, 2.5] },
-      { name: 'MACD', calcParams: [8, 21, 5] }
+    const initialOverrides = chartMocks.coreOriginal.overrideIndicator.mock.calls.map(([value]) => value) as Array<Record<string, any>>
+    expect(initialOverrides).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'MA', calcParams: [7, 14, 28, 56] }),
+      expect.objectContaining({ name: 'EMA', calcParams: [6, 12, 20] }),
+      expect.objectContaining({ name: 'BOLL', calcParams: [14, 2.5] }),
+      expect.objectContaining({ name: 'MACD', calcParams: [8, 21, 5] })
     ]))
+    expect(initialOverrides.find(value => value.name === 'EMA')?.styles.lines.map((line: { color: string }) => line.color))
+      .toEqual(['#11aa22', '#bb33cc', '#4455ee'])
     expect(api.getOpenInterestData).toHaveBeenCalledWith('ETHUSDT', '5m', 500, 300_000, 900_000, expect.any(AbortSignal))
     const indicator = chartMocks.indicator as { calc: (bars: typeof candles, instance: { extendData: unknown }) => unknown[] }
     expect(indicator.calc(candles, {
       extendData: { samples: [{ timestamp: 300_000, quantity: 10, value: 999_000 }], interval: '5m' }
     })).toEqual([{ value: 10 }, { value: null }])
+    wrapper.unmount()
+  })
+
+  it('gives existing and newly added subchart indicators a readable default height', async () => {
+    savedStudies({
+      MACD: { enabled: true, params: [12, 26, 9] },
+      OPEN_INTEREST: { enabled: true, params: [] }
+    })
+    chartMocks.coreOriginal.getIndicatorByPaneId.mockReturnValue(new Map([
+      ['macd-pane', new Map([['MACD', {}]])],
+      ['oi-pane', new Map([['OPEN_INTEREST', {}]])]
+    ]))
+    const wrapper = mount(SimpleChart, { props: { symbol: 'ETHUSDT', interval: '5m', candles } })
+    await flushTimers()
+
+    expect(chartMocks.coreOriginal.setPaneOptions).toHaveBeenCalledWith(expect.objectContaining({ id: 'macd-pane', height: 160 }))
+    expect(chartMocks.coreOriginal.setPaneOptions).toHaveBeenCalledWith(expect.objectContaining({ id: 'oi-pane', height: 160 }))
+
+    chartMocks.coreChart.createIndicator('MACD', true)
+    expect(chartMocks.coreOriginal.createIndicator).toHaveBeenCalledWith('MACD', true, expect.objectContaining({ height: 160 }), undefined)
+    wrapper.unmount()
+  })
+
+  it('recreates Pro after an internal symbol selection or period change to reload data and reset chart scales', async () => {
+    const wrapper = mount(SimpleChart, { props: { symbol: 'ETHUSDT', interval: '5m', candles } })
+    const firstChart = chartMocks.instances[0]!
+    const firstFeed = firstChart.options.datafeed as { dispose: () => void }
+    const disposeFirstFeed = vi.spyOn(firstFeed, 'dispose')
+
+    firstChart.chart.setSymbol({ ticker: 'BTCUSDT' })
+    await wrapper.setProps({ symbol: 'BTCUSDT' })
+    await flushTimers()
+    expect(firstChart.chart.dispose).toHaveBeenCalledOnce()
+    expect(disposeFirstFeed).toHaveBeenCalledOnce()
+    expect(chartMocks.instances[1]?.options.symbol.ticker).toBe('BTCUSDT')
+
+    await wrapper.setProps({ interval: '15m' })
+    await flushTimers()
+    expect(chartMocks.instances[2]?.options.symbol.ticker).toBe('BTCUSDT')
+    expect(chartMocks.instances[2]?.options.period.text).toBe('15m')
+    wrapper.unmount()
+  })
+
+  it('does not open the removed refresh dialog or reload the chart on right click', async () => {
+    const wrapper = mount(SimpleChart, { props: { symbol: 'ETHUSDT', interval: '5m', candles } })
+    const firstChart = chartMocks.instances[0]!
+
+    await wrapper.get('.pro-chart-host').trigger('contextmenu')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(firstChart.chart.dispose).not.toHaveBeenCalled()
+    expect(chartMocks.instances).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('opens EMA settings after selection and saves the line count, periods, and colors from a dialog', async () => {
+    savedStudies({ EMA: { enabled: false, params: [6, 12, 20] } })
+    const wrapper = mount(SimpleChart, { props: { symbol: 'ETHUSDT', interval: '5m', candles } })
+    await flushTimers()
+
+    chartMocks.coreChart.createIndicator('EMA', true)
+    await flushPromises()
+    expect(wrapper.find('[role="dialog"][aria-labelledby="ema-settings-title"]').exists()).toBe(true)
+    expect(wrapper.find('.ema-settings-trigger').exists()).toBe(false)
+    chartMocks.coreOriginal.overrideIndicator.mockClear()
+
+    await wrapper.get('[aria-label="添加一条 EMA 均线"]').trigger('click')
+    const periods = wrapper.findAll('[aria-label^="EMA 第"]')
+    const colors = wrapper.findAll('[aria-label^="EMA 颜色"]')
+    expect(periods).toHaveLength(4)
+    expect(colors).toHaveLength(4)
+
+    await periods[3]!.setValue('34')
+    await periods[3]!.trigger('change')
+    await colors[3]!.setValue('#00ff88')
+    await colors[3]!.trigger('input')
+
+    expect(getChartPreferences('ETHUSDT').studies.EMA).toEqual({
+      enabled: true, params: [6, 12, 20], colors: ['#ff9800', '#2196f3', '#e91e63']
+    })
+    await wrapper.get('[aria-label="保存 EMA 设置"]').trigger('click')
+    expect(getChartPreferences('ETHUSDT').studies.EMA).toEqual({
+      enabled: true,
+      params: [6, 12, 20, 34],
+      colors: ['#ff9800', '#2196f3', '#e91e63', '#00ff88']
+    })
+    const [override, paneId] = chartMocks.coreOriginal.overrideIndicator.mock.calls[
+      chartMocks.coreOriginal.overrideIndicator.mock.calls.length - 1
+    ] as [Record<string, any>, unknown]
+    expect(override).toMatchObject({ name: 'EMA', calcParams: [6, 12, 20, 34] })
+    expect(override.styles.lines.map((line: { color: string }) => line.color)).toEqual(['#ff9800', '#2196f3', '#e91e63', '#00ff88'])
+    expect(paneId).toBe('candle_pane')
+
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    chartMocks.coreChart.createIndicator('EMA', true)
+    await flushPromises()
+    expect(wrapper.find('[role="dialog"][aria-labelledby="ema-settings-title"]').exists()).toBe(true)
+    expect(wrapper.findAll('[aria-label^="EMA 第"]')).toHaveLength(4)
+    await wrapper.get('[aria-label="关闭 EMA 设置"]').trigger('click')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    chartMocks.coreChart.createIndicator('EMA', true)
+    await flushPromises()
+    await wrapper.get('[aria-label="移除 EMA 第 2 条"]').trigger('click')
+    expect(wrapper.findAll('[aria-label^="EMA 第"]')).toHaveLength(3)
+    await wrapper.get('[aria-label="取消 EMA 设置"]').trigger('click')
+    expect(getChartPreferences('ETHUSDT').studies.EMA).toEqual({
+      enabled: true, params: [6, 12, 20, 34], colors: ['#ff9800', '#2196f3', '#e91e63', '#00ff88']
+    })
+    wrapper.unmount()
+  })
+
+  it('keeps EMA settings open and shows validation feedback for invalid periods', async () => {
+    savedStudies({ EMA: { enabled: false, params: [6, 12, 20] } })
+    const wrapper = mount(SimpleChart, { props: { symbol: 'ETHUSDT', interval: '5m', candles } })
+    await flushTimers()
+
+    chartMocks.coreChart.createIndicator('EMA', true)
+    await flushPromises()
+    const firstPeriod = wrapper.get('[aria-label="EMA 第 1 条周期"]')
+    await firstPeriod.setValue('0')
+    await firstPeriod.trigger('change')
+    await wrapper.get('[aria-label="保存 EMA 设置"]').trigger('click')
+
+    const dialog = wrapper.find('[role="dialog"]')
+    expect(dialog.exists()).toBe(true)
+    expect(dialog.get('[role="alert"]').text()).toContain('均线周期必须是 1 到 6 个正整数')
+    expect(getChartPreferences('ETHUSDT').studies.EMA?.params).toEqual([6, 12, 20])
+    wrapper.unmount()
+  })
+
+  it('keeps EMA period text editable while typing and validates it when saved', async () => {
+    savedStudies({ EMA: { enabled: false, params: [6, 12, 20] } })
+    const wrapper = mount(SimpleChart, { props: { symbol: 'ETHUSDT', interval: '5m', candles } })
+    await flushTimers()
+
+    chartMocks.coreChart.createIndicator('EMA', true)
+    await flushPromises()
+    const period = wrapper.get('[aria-label="EMA 第 1 条周期"]')
+    await period.setValue('')
+    expect((period.element as HTMLInputElement).value).toBe('')
+    await period.setValue('28')
+    expect((period.element as HTMLInputElement).value).toBe('28')
+
+    await wrapper.get('[aria-label="保存 EMA 设置"]').trigger('click')
+    expect(getChartPreferences('ETHUSDT').studies.EMA?.params).toEqual([28, 12, 20])
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     wrapper.unmount()
   })
 
@@ -144,7 +296,9 @@ describe('SimpleChart Pro integration', () => {
     chartMocks.coreChart.createIndicator({ name: 'EMA' }, true)
     chartMocks.coreChart.overrideIndicator({ name: 'EMA', calcParams: [4, 8, 16] })
 
-    expect(getChartPreferences('ETHUSDT').studies.EMA).toEqual({ enabled: true, params: [4, 8, 16] })
+    expect(getChartPreferences('ETHUSDT').studies.EMA).toEqual({
+      enabled: true, params: [4, 8, 16], colors: ['#ff9800', '#2196f3', '#e91e63']
+    })
     wrapper.unmount()
   })
 

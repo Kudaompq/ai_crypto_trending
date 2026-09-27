@@ -1,6 +1,40 @@
 <template>
   <section class="chart-card">
     <div ref="chartHost" class="pro-chart-host" role="img" :aria-label="`${symbol} ${interval} K线图`"></div>
+    <div v-if="showEmaSettings" class="ema-dialog-backdrop" @click.self="cancelEmaSettings">
+      <section class="ema-dialog" role="dialog" aria-modal="true" aria-labelledby="ema-settings-title">
+        <header class="ema-dialog-header">
+          <div>
+            <h2 id="ema-settings-title">EMA 均线设置</h2>
+            <p>设置均线周期和颜色，保存后应用到当前图表。</p>
+          </div>
+          <button type="button" class="ema-dialog-close" aria-label="关闭 EMA 设置" @click="cancelEmaSettings">×</button>
+        </header>
+        <p v-if="studyError" class="ema-dialog-error" role="alert">{{ studyError }}</p>
+        <div class="ema-dialog-lines">
+          <div v-for="(period, index) in emaSettingsDraft.params" :key="index" class="ema-line-setting">
+            <label>
+              <span>EMA {{ index + 1 }} 周期</span>
+              <input type="text" inputmode="numeric" autocomplete="off" :value="period"
+                :aria-label="`EMA 第 ${index + 1} 条周期`" @input="updateEmaPeriod(index, $event)" />
+            </label>
+            <label>
+              <span>颜色</span>
+              <input type="color" :value="emaSettingsDraft.colors[index]" :aria-label="`EMA 颜色第 ${index + 1} 条`"
+                @input="updateEmaColor(index, $event)" />
+            </label>
+            <button type="button" class="ema-line-remove" :aria-label="`移除 EMA 第 ${index + 1} 条`"
+              :disabled="emaSettingsDraft.params.length <= 1" @click="removeEmaLine(index)">移除</button>
+          </div>
+          <button type="button" class="ema-add-line" aria-label="添加一条 EMA 均线"
+            :disabled="emaSettingsDraft.params.length >= MAX_EMA_LINES" @click="addEmaLine">＋ 添加均线</button>
+        </div>
+        <footer class="ema-dialog-actions">
+          <button type="button" class="ema-cancel" aria-label="取消 EMA 设置" @click="cancelEmaSettings">取消</button>
+          <button type="button" class="ema-save" aria-label="保存 EMA 设置" @click="saveEmaSettings">保存设置</button>
+        </footer>
+      </section>
+    </div>
     <p v-if="historyError" class="chart-message" role="alert">
       {{ historyError }}
       <button class="chart-retry" type="button" @click="retryHistory">重试历史行情</button>
@@ -34,6 +68,7 @@ import { createBinanceProDatafeed, BINANCE_PRO_PERIODS, type BinanceProPeriod } 
 import { mapOpenInterestToBars, openInterestIntervalMilliseconds } from '../services/openInterestSeries'
 import {
   DEFAULT_STUDY_PREFERENCES,
+  DEFAULT_EMA_COLORS,
   getChartPreferences,
   saveChartPreferences,
   validateChartStudyParameters,
@@ -98,6 +133,8 @@ const emit = defineEmits<{
 }>()
 
 const chartHost = ref<HTMLElement | null>(null)
+const showEmaSettings = ref(false)
+const emaSettingsDraft = ref({ params: [] as string[], colors: [] as string[] })
 const chartStorageWarning = ref('')
 const historyError = ref('')
 const openInterestError = ref('')
@@ -111,14 +148,40 @@ let openInterestVersion = 0
 let openInterestTimer: ReturnType<typeof setTimeout> | null = null
 let drawingPersistTimer: ReturnType<typeof setTimeout> | null = null
 let activeDrawingSymbol = props.symbol
+let lastSyncedSymbol = props.symbol
+let lastSyncedInterval = props.interval
 const overlayIds = new Set<string>()
 const studies = ref<Record<ChartStudyName, ChartStudyPreference>>(loadStudyPreferences(props.symbol))
+const DEFAULT_SUBCHART_HEIGHT = 160
+const MIN_SUBCHART_HEIGHT = 120
+const MAX_EMA_LINES = 6
+
+function normalizeEmaColors(colors: string[] | undefined, count: number): string[] {
+  return Array.from({ length: count }, (_, index) => {
+    const color = colors?.[index]
+    return color && /^#[0-9a-fA-F]{6}$/.test(color) ? color : DEFAULT_EMA_COLORS[index % DEFAULT_EMA_COLORS.length]!
+  })
+}
+
+function emaLineStyles(chart: Chart, colors: string[]) {
+  const defaultLines = chart.getStyles().indicator.lines
+  return {
+    lines: colors.map((color, index) => ({
+      ...defaultLines[index % defaultLines.length]!,
+      color
+    }))
+  }
+}
 
 function loadStudyPreferences(symbol: string): Record<ChartStudyName, ChartStudyPreference> {
   const saved = getChartPreferences(symbol).studies
   return Object.fromEntries(Object.entries(DEFAULT_STUDY_PREFERENCES).map(([name, fallback]) => {
     const value = saved[name as ChartStudyName]
-    return [name, value ? { enabled: value.enabled, params: [...value.params] } : { enabled: fallback.enabled, params: [...fallback.params] }]
+    const preference = value ? { enabled: value.enabled, params: [...value.params], colors: value.colors ? [...value.colors] : undefined } : {
+      enabled: fallback.enabled, params: [...fallback.params], colors: fallback.colors ? [...fallback.colors] : undefined
+    }
+    if (name === 'EMA') preference.colors = normalizeEmaColors(preference.colors, preference.params.length)
+    return [name, preference]
   })) as Record<ChartStudyName, ChartStudyPreference>
 }
 
@@ -149,10 +212,76 @@ function selectionRequested(selection: { symbol: string; interval: string }) {
 }
 
 function setStudyPreference(name: ChartStudyName, next: ChartStudyPreference) {
-  studies.value = { ...studies.value, [name]: { enabled: next.enabled, params: [...next.params] } }
+  const preference = {
+    enabled: next.enabled,
+    params: [...next.params],
+    ...(name === 'EMA' ? { colors: normalizeEmaColors(next.colors, next.params.length) } : {})
+  }
+  studies.value = { ...studies.value, [name]: preference }
   const preferences = getChartPreferences(activeDrawingSymbol)
   const saved = saveChartPreferences(activeDrawingSymbol, { ...preferences, studies: studies.value })
   chartStorageWarning.value = saved ? '' : '图表设置未能保存到浏览器，刷新后可能丢失'
+}
+
+function openEmaSettings() {
+  emaSettingsDraft.value = {
+    params: studies.value.EMA.params.map(String),
+    colors: normalizeEmaColors(studies.value.EMA.colors, studies.value.EMA.params.length)
+  }
+  studyError.value = ''
+  showEmaSettings.value = true
+}
+
+function updateEmaPeriod(index: number, event: Event) {
+  const period = (event.target as HTMLInputElement).value
+  const params = [...emaSettingsDraft.value.params]
+  params[index] = period
+  emaSettingsDraft.value = { ...emaSettingsDraft.value, params }
+}
+
+function updateEmaColor(index: number, event: Event) {
+  const colors = [...emaSettingsDraft.value.colors]
+  colors[index] = (event.target as HTMLInputElement).value
+  emaSettingsDraft.value = { ...emaSettingsDraft.value, colors }
+}
+
+function addEmaLine() {
+  const params = [...emaSettingsDraft.value.params]
+  if (params.length >= MAX_EMA_LINES) return
+  const lastPeriod = Number(params[params.length - 1])
+  params.push(String(Number.isInteger(lastPeriod) && lastPeriod > 0 ? lastPeriod + 10 : 30))
+  const colors = normalizeEmaColors(emaSettingsDraft.value.colors, params.length)
+  emaSettingsDraft.value = { params, colors }
+}
+
+function removeEmaLine(index: number) {
+  const params = [...emaSettingsDraft.value.params]
+  if (params.length <= 1) return
+  params.splice(index, 1)
+  const colors = [...emaSettingsDraft.value.colors]
+  colors.splice(index, 1)
+  emaSettingsDraft.value = { params, colors }
+}
+
+function saveEmaSettings() {
+  const { params: periodText } = emaSettingsDraft.value
+  if (!periodText.every(period => /^\d+$/.test(period))) {
+    studyError.value = 'EMA 周期必须为数字'
+    return
+  }
+  const params = periodText.map(Number)
+  if (!validStudyParams('EMA', params)) return
+  const current = studies.value.EMA
+  const colors = normalizeEmaColors(emaSettingsDraft.value.colors, params.length)
+  setStudyPreference('EMA', { enabled: current.enabled, params, colors })
+  if (current.enabled && coreChart) {
+    coreChart.overrideIndicator({ name: 'EMA', calcParams: [...params], styles: emaLineStyles(coreChart, colors) }, 'candle_pane')
+  }
+  showEmaSettings.value = false
+}
+
+function cancelEmaSettings() {
+  showEmaSettings.value = false
 }
 
 function validStudyParams(name: ChartStudyName, params: number[]): boolean {
@@ -178,14 +307,28 @@ function installStudyPreferenceBridge(chart: Chart) {
   chart.createIndicator = ((value, isStack, paneOptions, callback) => {
     const name = indicatorName(value)
     const studyName = chartStudyName(name)
+    let createValue = value
+    let createPaneOptions = paneOptions
     if (studyName) {
       const requested = typeof value === 'string' ? studies.value[studyName].params : (value.calcParams ?? studies.value[studyName].params)
       if (!validStudyParams(studyName, requested)) return null
+      if (studyName === 'EMA') {
+        const styles = emaLineStyles(chart, normalizeEmaColors(studies.value.EMA.colors, requested.length))
+        createValue = typeof value === 'string' ? { name: value, calcParams: [...requested], styles } : {
+          ...value,
+          calcParams: [...requested],
+          styles: { ...value.styles, ...styles }
+        }
+      }
+      if ((studyName === 'MACD' || studyName === 'OPEN_INTEREST') && !paneOptions?.height) {
+        createPaneOptions = { ...paneOptions, height: DEFAULT_SUBCHART_HEIGHT, minHeight: MIN_SUBCHART_HEIGHT }
+      }
     }
-    const created = originalCreateIndicator(value, isStack, paneOptions, callback)
+    const created = originalCreateIndicator(createValue, isStack, createPaneOptions, callback)
     if (studyName && created) {
       const requested = typeof value === 'string' ? studies.value[studyName].params : (value.calcParams ?? studies.value[studyName].params)
-      setStudyPreference(studyName, { enabled: true, params: [...requested] })
+      setStudyPreference(studyName, { ...studies.value[studyName], enabled: true, params: [...requested] })
+      if (studyName === 'EMA') openEmaSettings()
       if (studyName === 'OPEN_INTEREST') scheduleOpenInterestRefresh()
     }
     return created
@@ -381,37 +524,47 @@ function retryHistory() {
   proChart.setPeriod({ ...proChart.getPeriod() })
 }
 
-function syncSymbol(symbol: string) {
-  if (!proChart || proChart.getSymbol().ticker === symbol) return
-  saveDrawingsNow()
-  activeDrawingSymbol = symbol
-  studies.value = loadStudyPreferences(symbol)
-  proChart.setSymbol(symbolInfo(symbol))
-  restoreDrawings(symbol)
-  scheduleOpenInterestRefresh()
-}
+function syncChartScope(symbol: string, interval: string) {
+  if (!proChart || (symbol === lastSyncedSymbol && interval === lastSyncedInterval)) return
 
-function syncPeriod(interval: string) {
-  if (!proChart || proChart.getPeriod().text === interval) return
-  cancelOpenInterestRequest()
-  proChart.setPeriod(periodInfo(interval))
-  scheduleOpenInterestRefresh()
+  saveDrawingsNow()
+  const symbolChanged = symbol !== lastSyncedSymbol
+  lastSyncedSymbol = symbol
+  lastSyncedInterval = interval
+  if (symbolChanged) {
+    activeDrawingSymbol = symbol
+    studies.value = loadStudyPreferences(symbol)
+  }
+  showEmaSettings.value = false
+  recreateProChart(false)
 }
 
 function setInitialStudyParameters(chart: Chart) {
   for (const name of ['MA', 'EMA', 'BOLL', 'MACD'] as const) {
     if (!studies.value[name].enabled) continue
     if (validStudyParams(name, studies.value[name].params)) {
-      chart.overrideIndicator({ name, calcParams: [...studies.value[name].params] })
+      chart.overrideIndicator({
+        name,
+        calcParams: [...studies.value[name].params],
+        ...(name === 'EMA' ? { styles: emaLineStyles(chart, normalizeEmaColors(studies.value.EMA.colors, studies.value.EMA.params.length)) } : {})
+      })
     }
   }
 }
 
-onMounted(() => {
-  const container = chartHost.value
-  if (!container) return
+function setDefaultSubchartHeights(chart: Chart) {
+  const panes = chart.getIndicatorByPaneId()
+  if (!(panes instanceof Map)) return
+  for (const [paneId, indicators] of panes) {
+    const names = indicators instanceof Map ? [...indicators.keys()] : []
+    if (names.some(name => name === 'MACD' || name === 'OPEN_INTEREST')) {
+      chart.setPaneOptions({ id: paneId, height: DEFAULT_SUBCHART_HEIGHT, minHeight: MIN_SUBCHART_HEIGHT })
+    }
+  }
+}
 
-  datafeed = createBinanceProDatafeed({
+function createChartDatafeed() {
+  return createBinanceProDatafeed({
     getSupportedSymbols: () => props.symbols.length > 0 ? props.symbols : [props.symbol],
     fetchHistory: (request, signal) => api.getKlineData(request.symbol, request.interval, request.limit, request.endTime, signal),
     onSelectionRequest: selectionRequested,
@@ -422,7 +575,10 @@ onMounted(() => {
       if (symbol === props.symbol && interval === props.interval && studies.value.OPEN_INTEREST.enabled) scheduleOpenInterestRefresh()
     }
   })
+}
 
+function initializeProChart(container: HTMLElement) {
+  datafeed = createChartDatafeed()
   proChart = new KLineChartPro({
     container,
     symbol: symbolInfo(props.symbol),
@@ -444,20 +600,50 @@ onMounted(() => {
     return
   }
   installStudyPreferenceBridge(coreChart)
+  setDefaultSubchartHeights(coreChart)
   installOverlayPreferenceBridge(coreChart)
   setInitialStudyParameters(coreChart)
-  activeDrawingSymbol = props.symbol
-  restoreDrawings(props.symbol)
+  restoreDrawings(activeDrawingSymbol)
   scheduleOpenInterestRefresh()
 
   if (typeof ResizeObserver !== 'undefined') {
     resizeObserver = new ResizeObserver(() => coreChart?.resize())
     resizeObserver.observe(container)
   }
+}
+
+function recreateProChart(saveCurrentDrawings = true) {
+  const container = chartHost.value
+  if (!container || !proChart) return
+
+  if (saveCurrentDrawings) saveDrawingsNow()
+  if (openInterestTimer !== null) clearTimeout(openInterestTimer)
+  openInterestTimer = null
+  cancelOpenInterestRequest()
+  resizeObserver?.disconnect()
+  resizeObserver = null
+
+  proChart.dispose()
+  proChart = null
+  coreChart = null
+  datafeed?.dispose()
+  datafeed = null
+  historyError.value = ''
+  openInterestError.value = ''
+
+  initializeProChart(container)
+}
+
+onMounted(() => {
+  const container = chartHost.value
+  if (!container) return
+  activeDrawingSymbol = props.symbol
+  lastSyncedSymbol = props.symbol
+  lastSyncedInterval = props.interval
+  initializeProChart(container)
 })
 
-watch(() => props.symbol, symbol => syncSymbol(symbol))
-watch(() => props.interval, interval => syncPeriod(interval))
+watch(() => [props.symbol, props.interval] as const, ([symbol, interval]) => syncChartScope(symbol, interval))
 watch(() => {
   const latest = props.candles[props.candles.length - 1]
   return [props.symbol, props.interval, latest?.timestamp, latest?.open, latest?.high, latest?.low, latest?.close, latest?.volume]
@@ -486,11 +672,193 @@ onBeforeUnmount(() => {
 <style scoped>
 .chart-card {
   min-width: 0;
-  padding: 12px;
   overflow: hidden;
   background: #141414;
   border: 1px solid #303030;
   border-radius: 8px;
+}
+
+.ema-dialog-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(0 0 0 / 68%);
+}
+
+.ema-dialog {
+  width: min(100%, 480px);
+  max-height: min(88vh, 680px);
+  overflow-y: auto;
+  padding: 20px;
+  border: 1px solid #3a3a3a;
+  border-radius: 12px;
+  background: #191919;
+  box-shadow: 0 20px 70px rgb(0 0 0 / 55%);
+  color: #e5e5e5;
+  font-size: 13px;
+}
+
+.ema-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.ema-dialog-header h2 {
+  margin: 0;
+  color: #f3f3f3;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.ema-dialog-header p {
+  margin: 6px 0 0;
+  color: #8f8f8f;
+  font-size: 12px;
+}
+
+.ema-dialog-error {
+  margin: -4px 0 12px;
+  color: #f0a35b;
+  font-size: 12px;
+}
+
+.ema-dialog-close {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #999;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ema-dialog-close:hover {
+  background: #292929;
+  color: #fff;
+}
+
+.ema-dialog-lines {
+  display: grid;
+  gap: 9px;
+}
+
+.ema-line-setting {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding: 11px;
+  border: 1px solid #303030;
+  border-radius: 8px;
+  background: #1d1d1d;
+}
+
+.ema-line-setting label {
+  display: grid;
+  gap: 7px;
+  color: #a5a5a5;
+  font-size: 11px;
+}
+
+.ema-line-setting input[type="text"] {
+  box-sizing: border-box;
+  width: 100%;
+  height: 32px;
+  padding: 5px 8px;
+  border: 1px solid #414141;
+  border-radius: 5px;
+  outline: none;
+  background: #111;
+  color: #eee;
+}
+
+.ema-line-setting input[type="text"]:focus {
+  border-color: #4388e8;
+}
+
+.ema-line-setting input[type="color"] {
+  box-sizing: border-box;
+  width: 100%;
+  height: 32px;
+  padding: 3px;
+  border: 1px solid #414141;
+  border-radius: 5px;
+  background: #111;
+  cursor: pointer;
+}
+
+.ema-line-remove,
+.ema-add-line,
+.ema-dialog-actions button {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #414141;
+  border-radius: 5px;
+  background: #252525;
+  color: #c7c7c7;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ema-line-remove:disabled,
+.ema-add-line:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.ema-add-line {
+  justify-self: start;
+  border-style: dashed;
+  background: transparent;
+  color: #b9b9b9;
+}
+
+.ema-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid #303030;
+}
+
+.ema-dialog-actions .ema-cancel {
+  background: transparent;
+}
+
+.ema-dialog-actions .ema-save {
+  border-color: #3979d1;
+  background: #2864b5;
+  color: #fff;
+}
+
+.ema-dialog-actions button:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+
+@media (max-width: 480px) {
+  .ema-dialog {
+    padding: 16px;
+  }
+
+  .ema-line-setting {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .ema-line-remove {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
 }
 
 .pro-chart-host {

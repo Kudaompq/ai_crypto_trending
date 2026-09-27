@@ -42,6 +42,19 @@ describe('chart preferences', () => {
     expect(getChartPreferences('BTCUSDT').drawings).toEqual([])
   })
 
+  it('persists the color for every configured EMA line', () => {
+    const raw = {
+      version: 2,
+      studies: { EMA: { enabled: true, params: [9, 21], colors: ['#ff9800', '#2196f3'] } },
+      symbols: {}
+    }
+    localStorage.setItem(CHART_PREFERENCES_STORAGE_KEY, JSON.stringify(raw))
+
+    expect(getChartPreferences('ETHUSDT').studies.EMA).toEqual({
+      enabled: true, params: [9, 21], colors: ['#ff9800', '#2196f3']
+    })
+  })
+
   it('persists shared OI enablement without interval-specific settings', () => {
     const preferences: SymbolChartPreferences = {
       studies: { OPEN_INTEREST: { enabled: true, params: [] } },

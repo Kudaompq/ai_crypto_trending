@@ -18,6 +18,8 @@ const { instances, constructors, coreChart, resizeObservers } = vi.hoisted(() =>
     overrideIndicator: vi.fn(),
     removeIndicator: vi.fn(),
     getIndicatorByPaneId: vi.fn(() => null),
+    setPaneOptions: vi.fn(),
+    getStyles: vi.fn(() => ({ indicator: { lines: [{ style: 'solid', size: 1, color: '#999999', dashedValue: [], smooth: false }] } })),
     createOverlay: vi.fn(() => 'overlay-1'),
     getOverlayById: vi.fn(() => null),
     removeOverlay: vi.fn(),
@@ -96,14 +98,20 @@ describe('SimpleChart Pro integration', () => {
     expect(instances[0]?.options.datafeed).toBeDefined()
   })
 
-  it('updates Pro when Watchlist selection or the selected interval changes', async () => {
+  it('recreates Pro when Watchlist selection or the selected interval changes', async () => {
     const wrapper = mount(SimpleChart, { props: { candles, symbol: 'BTCUSDT', interval: '1m', symbols: ['BTCUSDT', 'ETHUSDT'] } })
     const instance = instances[0]!
+    const disposeDatafeed = vi.spyOn(instance.options.datafeed, 'dispose')
 
     await wrapper.setProps({ symbol: 'ETHUSDT', interval: '5m' })
 
-    expect(instance.chart.setSymbol).toHaveBeenCalledWith(expect.objectContaining({ ticker: 'ETHUSDT' }))
-    expect(instance.chart.setPeriod).toHaveBeenCalledWith(expect.objectContaining({ text: '5m' }))
+    expect(instance.chart.dispose).toHaveBeenCalledOnce()
+    expect(disposeDatafeed).toHaveBeenCalledOnce()
+    expect(constructors).toHaveBeenCalledTimes(2)
+    expect(instances[1]?.options.symbol.ticker).toBe('ETHUSDT')
+    expect(instances[1]?.options.period.text).toBe('5m')
+    expect(resizeObservers[0]?.disconnect).toHaveBeenCalledOnce()
+    wrapper.unmount()
   })
 
   it('releases the Pro and Datafeed subscriptions when Vue unmounts the chart', () => {
