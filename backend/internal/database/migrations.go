@@ -18,6 +18,7 @@ var migrationVersions = []struct {
 	file    string
 }{
 	{version: 1, file: "migrations/001_watchlist.sql"},
+	{version: 2, file: "migrations/002_scheduled_analysis.sql"},
 }
 
 func ApplyMigrations(ctx context.Context, db *sql.DB) error {

@@ -48,6 +48,38 @@ func TestOpenAICompatibleProviderSendsConfiguredRequestAndParsesReply(t *testing
 	}
 }
 
+func TestOpenAICompatibleProviderSendsToolDefinitionsAndParsesToolCalls(t *testing.T) {
+	var requestTools []ChatToolDefinition
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Tools []ChatToolDefinition `json:"tools"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		requestTools = body.Tools
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call-oi-1","type":"function","function":{"name":"get_open_interest","arguments":"{\"interval\":\"4h\",\"limit\":2}"}}]}}]}`)
+	}))
+	defer server.Close()
+
+	provider := NewOpenAICompatibleProvider(OpenAICompatibleConfig{
+		Endpoint: server.URL, APIKey: "test-key", Model: "test-model", Timeout: time.Second,
+	})
+	result, err := provider.CompleteWithTools(context.Background(), []ChatMessage{{Role: "user", Content: "Check OI"}}, []ChatToolDefinition{{
+		Type: "function", Function: ChatToolFunctionDefinition{Name: "get_open_interest", Parameters: json.RawMessage(`{"type":"object"}`)},
+	}})
+	if err != nil {
+		t.Fatalf("CompleteWithTools returned error: %v", err)
+	}
+	if len(requestTools) != 1 || requestTools[0].Function.Name != "get_open_interest" {
+		t.Fatalf("request tools = %#v, want get_open_interest", requestTools)
+	}
+	if len(result.ToolCalls) != 1 || result.ToolCalls[0].ID != "call-oi-1" || result.ToolCalls[0].Function.Name != "get_open_interest" || result.ToolCalls[0].Function.Arguments != `{"interval":"4h","limit":2}` {
+		t.Fatalf("tool result = %#v, want parsed open interest call", result)
+	}
+}
+
 func TestOpenAICompatibleProviderAppendsChatCompletionsPathToBaseURL(t *testing.T) {
 	tests := []struct {
 		name     string

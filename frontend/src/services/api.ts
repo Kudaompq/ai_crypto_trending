@@ -232,13 +232,15 @@ export interface MarketAnalysisChatRequest {
 }
 
 export interface MarketAnalysisPlan {
-  direction: 'Long' | 'Short'
-  entry_type: 'market' | 'limit'
-  entry_price: number
-  take_profit: number
-  stop_loss: number
+  status: 'actionable' | 'wait'
+  timing: 'left' | 'right' | 'undetermined'
+  direction?: 'Long' | 'Short'
+  entry_type?: 'market' | 'limit'
+  entry_price?: number
+  take_profit?: number
+  stop_loss?: number
   confidence: number
-  leverage: number
+  leverage?: number
   analysis: string
 }
 

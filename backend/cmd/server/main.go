@@ -2,17 +2,23 @@ package main
 
 import (
 	"context"
-	"log"
-	"os"
-	"path/filepath"
-	"time"
-
+	"errors"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/kudaompq/ai_trending/backend/internal/database"
 	"github.com/kudaompq/ai_trending/backend/internal/handler"
 	"github.com/kudaompq/ai_trending/backend/internal/repository"
 	"github.com/kudaompq/ai_trending/backend/internal/service"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
 )
 
 func main() {
@@ -30,7 +36,13 @@ func main() {
 
 	validator := service.NewSymbolValidator()
 	watchlist := service.NewWatchlistService(repository.NewPostgresWatchlistRepository(db), validator)
-	r := newRouter(watchlist)
+	chatProviderConfig, chatProviderConfigured := service.OpenAICompatibleConfigFromEnv()
+	var chatProvider service.ChatCompletionProvider
+	if chatProviderConfigured {
+		chatProvider = service.NewOpenAICompatibleProvider(chatProviderConfig)
+	}
+	chatService := service.NewMarketAnalysisChatService(service.NewMarketContextService(), chatProvider, service.NewMarketAnalysisToolExecutor())
+	r := newRouterWithServices(watchlist, chatService)
 
 	// Start server
 	port := os.Getenv("PORT")
@@ -49,12 +61,66 @@ func main() {
 	log.Println("  GET /api/watchlist/prices?symbols=BTCUSDT,ETHUSDT")
 	log.Println("  GET /api/watchlist/stream?symbols=BTCUSDT,ETHUSDT")
 
-	if err := r.Run(address); err != nil {
-		log.Fatal("Failed to start server:", err)
+	processContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	var background sync.WaitGroup
+	if service.ScheduledWatchlistAnalysisEnabledFromEnv() && chatProviderConfigured {
+		analysisRepository := repository.NewPostgresScheduledAnalysisRepository(db)
+		notifier, notifierConfigured := service.NewWeComNotifierFromEnv()
+		if !notifierConfigured {
+			log.Println("scheduled analysis enabled without a WeCom webhook; results will be stored and alerts will remain queued")
+		}
+		runner := service.NewScheduledWatchlistAnalysisService(watchlist, chatService, analysisRepository, service.ScheduledWatchlistAnalysisConfig{
+			MaxConcurrency: envInt("SCHEDULED_ANALYSIS_CONCURRENCY", 4),
+			SymbolTimeout:  envDuration("SCHEDULED_ANALYSIS_SYMBOL_TIMEOUT", 2*time.Minute),
+			MaxRunDuration: envDuration("SCHEDULED_ANALYSIS_MAX_DURATION", 50*time.Minute),
+			Model:          chatProviderConfig.Model,
+			AlertSender:    notifier,
+		})
+		background.Add(1)
+		go func() {
+			defer background.Done()
+			runner.Start(processContext)
+		}()
+	} else if service.ScheduledWatchlistAnalysisEnabledFromEnv() {
+		log.Println("scheduled analysis is enabled but the AI provider is not configured")
 	}
+
+	server := &http.Server{Addr: address, Handler: r, ReadHeaderTimeout: 10 * time.Second}
+	serverErrors := make(chan error, 1)
+	go func() { serverErrors <- server.ListenAndServe() }()
+	select {
+	case err := <-serverErrors:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("HTTP server stopped: %v", err)
+		}
+	case <-processContext.Done():
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		if err := server.Shutdown(shutdownContext); err != nil {
+			log.Printf("HTTP shutdown failed: %v", err)
+			_ = server.Close()
+		}
+		cancel()
+	}
+	stop()
+	background.Wait()
 }
 
 func newRouter(watchlists ...*service.WatchlistService) *gin.Engine {
+	var watchlist *service.WatchlistService
+	if len(watchlists) > 0 {
+		watchlist = watchlists[0]
+	}
+	chatProviderConfig, chatProviderConfigured := service.OpenAICompatibleConfigFromEnv()
+	var chatProvider service.ChatCompletionProvider
+	if chatProviderConfigured {
+		chatProvider = service.NewOpenAICompatibleProvider(chatProviderConfig)
+	}
+	chatService := service.NewMarketAnalysisChatService(service.NewMarketContextService(), chatProvider, service.NewMarketAnalysisToolExecutor())
+	return newRouterWithServices(watchlist, chatService)
+}
+
+func newRouterWithServices(watchlist *service.WatchlistService, chatService *service.MarketAnalysisChatService) *gin.Engine {
 	// Create Gin router
 	r := gin.Default()
 
@@ -71,12 +137,14 @@ func newRouter(watchlists ...*service.WatchlistService) *gin.Engine {
 	validator := service.NewSymbolValidator()
 	klineHandler := handler.NewKlineHandler(validator)
 	analysisHandler := handler.NewAnalysisHandler(validator)
-	chatProviderConfig, chatProviderConfigured := service.OpenAICompatibleConfigFromEnv()
-	var chatProvider service.ChatCompletionProvider
-	if chatProviderConfigured {
-		chatProvider = service.NewOpenAICompatibleProvider(chatProviderConfig)
+	if chatService == nil {
+		chatProviderConfig, chatProviderConfigured := service.OpenAICompatibleConfigFromEnv()
+		var chatProvider service.ChatCompletionProvider
+		if chatProviderConfigured {
+			chatProvider = service.NewOpenAICompatibleProvider(chatProviderConfig)
+		}
+		chatService = service.NewMarketAnalysisChatService(service.NewMarketContextService(), chatProvider, service.NewMarketAnalysisToolExecutor())
 	}
-	chatService := service.NewMarketAnalysisChatService(service.NewMarketContextService(), chatProvider)
 	chatHandler := handler.NewMarketAnalysisChatHandler(validator, chatService)
 	streamHandler := handler.NewStreamHandler(service.NewMarketStreamService(), validator)
 	priceHandler := handler.NewWatchlistPriceHandler(service.NewMarketPriceService(), validator)
@@ -85,8 +153,8 @@ func newRouter(watchlists ...*service.WatchlistService) *gin.Engine {
 	// API routes
 	api := r.Group("/api")
 	{
-		if len(watchlists) > 0 && watchlists[0] != nil {
-			handler.RegisterWatchlistRoutes(api, watchlists[0])
+		if watchlist != nil {
+			handler.RegisterWatchlistRoutes(api, watchlist)
 		}
 		api.GET("/symbols/validate", handler.ValidateSymbol(validator))
 		// K-line data endpoint
@@ -112,4 +180,20 @@ func newRouter(watchlists ...*service.WatchlistService) *gin.Engine {
 	}
 
 	return r
+}
+
+func envInt(name string, fallback int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name)))
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func envDuration(name string, fallback time.Duration) time.Duration {
+	value, err := time.ParseDuration(strings.TrimSpace(os.Getenv(name)))
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
 }

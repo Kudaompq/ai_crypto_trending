@@ -19,6 +19,7 @@ function deferred<T>() {
 
 function makeChatResponse(analysis: string, symbol: string, interval: string, context_time: number) {
   const plan = {
+    status: 'actionable' as const, timing: 'right' as const,
     direction: 'Long' as const, entry_type: 'market' as const, entry_price: 100,
     take_profit: 110, stop_loss: 90, confidence: 72, leverage: 2, analysis
   }
@@ -107,6 +108,7 @@ describe('MarketAnalysisChat', () => {
 
   it('renders the directional plan, derived stop risk, analysis time, and supplied key levels', async () => {
     const plan = {
+      status: 'actionable', timing: 'left',
       direction: 'Long', entry_type: 'market', entry_price: 11.07,
       take_profit: 11.78, stop_loss: 10.74, confidence: 72,
       leverage: 5, analysis: '价格站上短线结构位，接近阻力区域；若跌破支撑则该判断失效。'
@@ -125,7 +127,8 @@ describe('MarketAnalysisChat', () => {
 
     const card = wrapper.get('[data-role="assistant"]')
     expect(card.get('.analysis-direction').text()).toContain('Long')
-    expect(card.get('.analysis-time').text()).toContain('分析时间')
+    expect(card.get('.analysis-time').text()).toContain('左侧')
+    expect(card.find('.analysis-time').attributes('datetime')).toBeUndefined()
     expect(card.get('.analysis-entry').text()).toContain('$11.07')
     expect(card.get('.analysis-take-profit').text()).toContain('$11.78')
     expect(card.get('.analysis-stop-loss').text()).toContain('$10.74')
@@ -167,6 +170,7 @@ describe('MarketAnalysisChat', () => {
 
   it('renders a Short direction with its bearish color and inverse price ordering', async () => {
     const plan = {
+      status: 'actionable', timing: 'right',
       direction: 'Short', entry_type: 'limit', entry_price: 102,
       take_profit: 95, stop_loss: 110, confidence: 64,
       leverage: 2, analysis: '价格跌破结构支撑，反弹无法收回时空头逻辑仍有效。'
@@ -185,6 +189,30 @@ describe('MarketAnalysisChat', () => {
     expect(wrapper.get('.analysis-direction-short').text()).toContain('Short')
     expect(wrapper.get('.analysis-entry').text()).toContain('$102')
     expect(wrapper.get('.analysis-margin-risk').text()).toContain('16%')
+    wrapper.unmount()
+  })
+
+  it('renders wait status without invented trade prices and keeps market time separate', async () => {
+    const plan = {
+      status: 'wait', timing: 'undetermined', confidence: 48,
+      analysis: '价格结构与 OI 信号暂不一致，等待突破后再确认。'
+    }
+    mocks.send.mockResolvedValueOnce({
+      reply: JSON.stringify(plan), plan,
+      key_levels: { resistance: null, support: null },
+      reference_price: 100, symbol: 'BTCUSDT', interval: '1h', context_time: 1_758_736_800_000
+    })
+    const wrapper = mount(MarketAnalysisChat, { props: { symbol: 'BTCUSDT', interval: '1h' } })
+
+    await wrapper.get('textarea[aria-label="向 AI 行情分析提问"]').setValue('分析当前机会')
+    await wrapper.get('.ai-chat-form').trigger('submit')
+    await flushPromises()
+
+    const card = wrapper.get('[data-role="assistant"]')
+    expect(card.get('.analysis-time').text()).toContain('暂不可判定 / 等待确认')
+    expect(card.find('.analysis-prices').exists()).toBe(false)
+    expect(card.get('.analysis-narrative').text()).toContain('等待突破后再确认')
+    expect(card.get('.analysis-market-time').text()).toContain('数据时间')
     wrapper.unmount()
   })
 

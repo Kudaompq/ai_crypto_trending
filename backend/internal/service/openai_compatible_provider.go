@@ -70,12 +70,23 @@ func withOpenAICompatibleDefaults(config OpenAICompatibleConfig) OpenAICompatibl
 }
 
 func (p *OpenAICompatibleProvider) Complete(ctx context.Context, messages []ChatMessage) (string, error) {
+	result, err := p.CompleteWithTools(ctx, messages, nil)
+	if err != nil {
+		return "", err
+	}
+	if result.Content == "" || len(result.ToolCalls) > 0 {
+		return "", ErrChatProviderFailed
+	}
+	return result.Content, nil
+}
+
+func (p *OpenAICompatibleProvider) CompleteWithTools(ctx context.Context, messages []ChatMessage, tools []ChatToolDefinition) (ChatCompletionResult, error) {
 	if p == nil || p.client == nil || strings.TrimSpace(p.config.Endpoint) == "" || strings.TrimSpace(p.config.APIKey) == "" || strings.TrimSpace(p.config.Model) == "" {
-		return "", ErrChatProviderNotConfigured
+		return ChatCompletionResult{}, ErrChatProviderNotConfigured
 	}
 	endpoint, err := url.Parse(p.config.Endpoint)
 	if err != nil || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Host == "" {
-		return "", ErrChatProviderNotConfigured
+		return ChatCompletionResult{}, ErrChatProviderNotConfigured
 	}
 	endpoint.Path = strings.TrimRight(endpoint.Path, "/")
 	if !strings.HasSuffix(endpoint.Path, "/chat/completions") && endpoint.Path != "/chat/completions" {
@@ -83,52 +94,84 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, messages []Chat
 	}
 	endpoint.RawPath = ""
 	if len(messages) == 0 {
-		return "", ErrInvalidChatRequest
+		return ChatCompletionResult{}, ErrInvalidChatRequest
 	}
 	for _, message := range messages {
-		if (message.Role != "system" && message.Role != "user" && message.Role != "assistant") || strings.TrimSpace(message.Content) == "" {
-			return "", ErrInvalidChatRequest
+		if !isValidProviderMessage(message) {
+			return ChatCompletionResult{}, ErrInvalidChatRequest
+		}
+	}
+	for _, tool := range tools {
+		if tool.Type != "function" || strings.TrimSpace(tool.Function.Name) == "" || len(tool.Function.Parameters) == 0 || !json.Valid(tool.Function.Parameters) {
+			return ChatCompletionResult{}, ErrInvalidChatRequest
 		}
 	}
 
 	messages = limitChatMessages(messages, p.config.MaxHistory)
 	body, err := json.Marshal(struct {
-		Model    string        `json:"model"`
-		Messages []ChatMessage `json:"messages"`
-	}{Model: p.config.Model, Messages: messages})
+		Model    string               `json:"model"`
+		Messages []ChatMessage        `json:"messages"`
+		Tools    []ChatToolDefinition `json:"tools,omitempty"`
+	}{Model: p.config.Model, Messages: messages, Tools: tools})
 	if err != nil {
-		return "", ErrChatProviderFailed
+		return ChatCompletionResult{}, ErrChatProviderFailed
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(body))
 	if err != nil {
-		return "", ErrChatProviderFailed
+		return ChatCompletionResult{}, ErrChatProviderFailed
 	}
 	request.Header.Set("Authorization", "Bearer "+p.config.APIKey)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
 	response, err := p.client.Do(request)
 	if err != nil {
-		return "", ErrChatProviderFailed
+		return ChatCompletionResult{}, ErrChatProviderFailed
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return "", fmt.Errorf("%w: upstream status %d", ErrChatProviderFailed, response.StatusCode)
+		return ChatCompletionResult{}, fmt.Errorf("%w: upstream status %d", ErrChatProviderFailed, response.StatusCode)
 	}
 	var result struct {
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content   json.RawMessage `json:"content"`
+				ToolCalls []ChatToolCall  `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&result); err != nil || len(result.Choices) == 0 {
-		return "", ErrChatProviderFailed
+		return ChatCompletionResult{}, ErrChatProviderFailed
 	}
-	reply := strings.TrimSpace(result.Choices[0].Message.Content)
-	if reply == "" {
-		return "", ErrChatProviderFailed
+	choice := result.Choices[0].Message
+	content := ""
+	if len(choice.Content) > 0 && string(choice.Content) != "null" {
+		if err := json.Unmarshal(choice.Content, &content); err != nil {
+			return ChatCompletionResult{}, ErrChatProviderFailed
+		}
 	}
-	return reply, nil
+	content = strings.TrimSpace(content)
+	for _, call := range choice.ToolCalls {
+		if strings.TrimSpace(call.ID) == "" || call.Type != "function" || strings.TrimSpace(call.Function.Name) == "" || !json.Valid([]byte(call.Function.Arguments)) {
+			return ChatCompletionResult{}, ErrChatProviderFailed
+		}
+	}
+	if content == "" && len(choice.ToolCalls) == 0 {
+		return ChatCompletionResult{}, ErrChatProviderFailed
+	}
+	return ChatCompletionResult{Content: content, ToolCalls: choice.ToolCalls}, nil
+}
+
+func isValidProviderMessage(message ChatMessage) bool {
+	if message.Role != "system" && message.Role != "user" && message.Role != "assistant" && message.Role != "tool" {
+		return false
+	}
+	if message.Role == "tool" {
+		return strings.TrimSpace(message.ToolCallID) != "" && strings.TrimSpace(message.Content) != ""
+	}
+	if message.Role == "assistant" && len(message.ToolCalls) > 0 {
+		return true
+	}
+	return strings.TrimSpace(message.Content) != ""
 }
 
 func limitChatMessages(messages []ChatMessage, maxHistory int) []ChatMessage {

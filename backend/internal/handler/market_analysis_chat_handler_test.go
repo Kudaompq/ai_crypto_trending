@@ -41,7 +41,7 @@ func (p *chatProviderStub) Complete(_ context.Context, _ []service.ChatMessage) 
 	if p.err != nil {
 		return "", p.err
 	}
-	return `{"direction":"Long","entry_type":"market","entry_price":65000,"take_profit":66000,"stop_loss":64000,"confidence":72,"leverage":2,"analysis":"价格维持在关键支撑上方，若跌破支撑则判断失效。"}`, nil
+	return `{"status":"actionable","timing":"right","direction":"Long","entry_type":"market","entry_price":65000,"take_profit":66000,"stop_loss":64000,"confidence":72,"leverage":2,"analysis":"价格维持在关键支撑上方，若跌破支撑则判断失效。"}`, nil
 }
 
 func TestMarketAnalysisChatHandlerDoesNotExposeProviderDetails(t *testing.T) {

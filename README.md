@@ -25,6 +25,8 @@ docker compose up -d postgres
 
 AI 行情分析对话为可选功能。启用时，在 `.env` 中设置 `AI_CHAT_ENDPOINT`、`AI_CHAT_API_KEY` 和 `AI_CHAT_MODEL`，指向 OpenAI-compatible Chat Completions 服务。`AI_CHAT_ENDPOINT` 可以是 API 基础地址（如 `https://api.deepseek.com` 或 `https://api.openai.com/v1`），后端会补上 `/chat/completions`；也可以填写完整的 Chat Completions URL。请求凭据只由后端使用。未设置这些值时，图表和 Watchlist 正常运行，对话在提交问题时提示模型服务未配置。
 
+设置 `SCHEDULED_ANALYSIS_ENABLED=true` 后，服务会在 UTC 整点每小时扫描一次共享 Watchlist。分析结合 K 线、成交量和 OI；模型可按需查询当前币种的其他受支持周期。每轮每币的最终结果（包括低置信度、等待确认和失败状态）追加保存到 PostgreSQL。仅可执行且置信度严格大于 70 的方案进入企微通知去重；配置 `WECOM_WEBHOOK_URL` 后，首次合格方案或实质变化才会推送。Webhook 只应保存在服务端环境变量或被 Git 忽略的 `.env` 中。扫描默认关闭；可以通过并发数、单币超时和单轮最长时长配置限制模型调用。
+
 也可以用 Docker 启动完整服务：
 
 ```bash

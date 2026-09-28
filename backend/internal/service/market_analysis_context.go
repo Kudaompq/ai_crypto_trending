@@ -13,17 +13,28 @@ type MarketAnalysisCandleSource interface {
 	GetKlines(symbol, interval string, limit int, endTime *int64) ([]model.Candle, error)
 }
 
+type MarketAnalysisOpenInterestSource interface {
+	GetOpenInterestHistory(symbol, period string, limit int, startTime, endTime *int64) ([]model.OpenInterestSample, error)
+}
+
 type MarketContextService struct {
-	source   MarketAnalysisCandleSource
-	analysis *AnalysisService
+	source             MarketAnalysisCandleSource
+	openInterestSource MarketAnalysisOpenInterestSource
+	analysis           *AnalysisService
 }
 
 func NewMarketContextService() *MarketContextService {
-	return NewMarketContextServiceWithSource(repository.NewBinanceRepository())
+	source := repository.NewBinanceRepository()
+	return NewMarketContextServiceWithSources(source, source)
 }
 
 func NewMarketContextServiceWithSource(source MarketAnalysisCandleSource) *MarketContextService {
-	return &MarketContextService{source: source, analysis: NewAnalysisService()}
+	openInterestSource, _ := source.(MarketAnalysisOpenInterestSource)
+	return NewMarketContextServiceWithSources(source, openInterestSource)
+}
+
+func NewMarketContextServiceWithSources(source MarketAnalysisCandleSource, openInterestSource MarketAnalysisOpenInterestSource) *MarketContextService {
+	return &MarketContextService{source: source, openInterestSource: openInterestSource, analysis: NewAnalysisService()}
 }
 
 func (s *MarketContextService) GetMarketAnalysisContext(ctx context.Context, symbol, interval string) (MarketAnalysisContext, error) {
@@ -62,5 +73,20 @@ func (s *MarketContextService) GetMarketAnalysisContext(ctx context.Context, sym
 	return MarketAnalysisContext{
 		Symbol: symbol, Interval: interval, ContextTime: contextTime,
 		Candles: append([]model.Candle(nil), candles...), Analysis: analysis,
+		OpenInterest: s.getOpenInterestSummary(symbol),
 	}, nil
+}
+
+func (s *MarketContextService) getOpenInterestSummary(symbol string) MarketAnalysisOpenInterestSummary {
+	if s.openInterestSource == nil {
+		return MarketAnalysisOpenInterestSummary{Status: "unavailable", Interval: "1h", ErrorCode: "source_not_configured"}
+	}
+	samples, err := s.openInterestSource.GetOpenInterestHistory(symbol, "1h", 2, nil, nil)
+	if err != nil {
+		return MarketAnalysisOpenInterestSummary{Status: "unavailable", Interval: "1h", ErrorCode: "source_unavailable"}
+	}
+	if len(samples) == 0 {
+		return MarketAnalysisOpenInterestSummary{Status: "unavailable", Interval: "1h", ErrorCode: "no_data"}
+	}
+	return summarizeOpenInterest(samples, "1h")
 }

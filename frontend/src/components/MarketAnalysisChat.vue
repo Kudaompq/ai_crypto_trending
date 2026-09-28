@@ -20,34 +20,32 @@
             <span aria-hidden="true">{{ suggestion.icon }}</span>{{ suggestion.label }}
           </button>
         </div>
-        <div class="scope-note">分析范围：当前周期 K 线与技术指标</div>
+        <div class="scope-note">分析范围：K 线、成交量、OI 与技术指标</div>
       </div>
       <article v-for="(message, index) in activeMessages" :key="`${symbol}-${index}`"
         class="chat-message" :class="`chat-message-${message.role}`" :data-role="message.role">
         <template v-if="message.role === 'assistant' && message.plan">
           <div class="analysis-card-heading">
-            <span class="analysis-direction" :class="`analysis-direction-${message.plan.direction.toLowerCase()}`">
+            <span v-if="message.plan.status === 'actionable'" class="analysis-direction" :class="`analysis-direction-${message.plan.direction?.toLowerCase()}`">
               <span aria-hidden="true">{{ message.plan.direction === 'Long' ? '↗' : '↘' }}</span>
               {{ message.plan.direction }}
             </span>
-            <span class="analysis-market-meta">{{ message.contextInterval }} · {{ message.plan.entry_type === 'market' ? '市价' : '限价' }}</span>
-            <time class="analysis-time" :datetime="new Date(message.analysisTime ?? 0).toISOString()">
-              分析时间 {{ formatAnalysisTime(message.analysisTime ?? 0) }}
-            </time>
+            <span v-if="message.plan.status === 'actionable'" class="analysis-market-meta">{{ message.contextInterval }} · {{ message.plan.entry_type === 'market' ? '市价' : '限价' }}</span>
+            <span class="analysis-time" :class="`analysis-time-${message.plan.timing}`">{{ timingLabel(message.plan.timing) }}</span>
           </div>
-          <div class="analysis-prices">
-            <div class="analysis-price analysis-entry"><span>入场价</span><strong>{{ formatPrice(message.plan.entry_price) }}</strong></div>
-            <div class="analysis-price analysis-take-profit"><span>止盈</span><strong>{{ formatPrice(message.plan.take_profit) }}</strong></div>
-            <div class="analysis-price analysis-stop-loss"><span>止损</span><strong>{{ formatPrice(message.plan.stop_loss) }}</strong></div>
+          <div v-if="message.plan.status === 'actionable'" class="analysis-prices">
+            <div class="analysis-price analysis-entry"><span>入场价</span><strong>{{ formatPrice(message.plan.entry_price!) }}</strong></div>
+            <div class="analysis-price analysis-take-profit"><span>止盈</span><strong>{{ formatPrice(message.plan.take_profit!) }}</strong></div>
+            <div class="analysis-price analysis-stop-loss"><span>止损</span><strong>{{ formatPrice(message.plan.stop_loss!) }}</strong></div>
           </div>
-          <div class="analysis-risk-row">
+          <div v-if="message.plan.status === 'actionable'" class="analysis-risk-row">
             <div class="confidence-meter" :style="{ '--confidence': `${message.plan.confidence}%` }"
               role="img" :aria-label="`置信度 ${message.plan.confidence}`">
               <span>{{ message.plan.confidence }}</span>
             </div>
             <div class="analysis-risk-copy">
               <span class="analysis-confidence">置信度 {{ message.plan.confidence }}</span>
-              <strong>建议杠杆 ~{{ formatLeverage(message.plan.leverage) }}x</strong>
+              <strong>建议杠杆 ~{{ formatLeverage(message.plan.leverage!) }}x</strong>
               <p class="analysis-margin-risk">打到止损约亏保证金 {{ formatMarginLoss(message.plan) }}%</p>
             </div>
           </div>
@@ -69,7 +67,7 @@
               </div>
             </div>
           </section>
-          <p class="analysis-disclaimer">AI 行情推演，仅作研究参考。止损亏损估算不含手续费、滑点和资金费率。</p>
+          <p class="analysis-disclaimer">AI 行情推演，仅作研究参考。<template v-if="message.plan.status === 'actionable'">止损亏损估算不含手续费、滑点和资金费率。</template></p>
         </template>
         <div v-else class="chat-message-content">{{ message.content }}</div>
         <time v-if="message.role === 'assistant' && message.contextTime"
@@ -88,7 +86,7 @@
         :disabled="isSending" placeholder="输入你想了解的问题…"
         @keydown.enter.exact.prevent="sendMessage" />
       <div class="chat-composer-footer">
-        <span>基于服务端最新 K 线与指标</span>
+        <span>基于服务端最新 K 线、成交量与 OI</span>
         <button type="submit" aria-label="发送消息" :disabled="!draft.trim() || isSending">发送</button>
       </div>
     </form>
@@ -102,7 +100,6 @@ import { api, type MarketAnalysisChatMessage, type MarketAnalysisChatResponse, t
 interface DisplayMessage extends MarketAnalysisChatMessage {
   contextTime?: number
   contextInterval?: string
-  analysisTime?: number
   plan?: MarketAnalysisPlan
   keyLevels?: MarketAnalysisKeyLevels
   referencePrice?: number
@@ -155,7 +152,7 @@ async function sendMessage() {
       { role: 'user', content: message },
       {
         role: 'assistant', content: response.reply, contextTime: response.context_time,
-        contextInterval: response.interval, analysisTime: Date.now(), plan: response.plan,
+        contextInterval: response.interval, plan: response.plan,
         keyLevels: response.key_levels, referencePrice: response.reference_price
       }
     )
@@ -177,11 +174,18 @@ function isValidAnalysisResponse(response: MarketAnalysisChatResponse): boolean 
   const validPrice = (value: number) => Number.isFinite(value) && value > 0
   const validLevel = (value: number | null) => value === null || validPrice(value)
   if (!plan || !response.key_levels || !validPrice(response.reference_price)) return false
-  if (!validPrice(plan.entry_price) || !validPrice(plan.take_profit) || !validPrice(plan.stop_loss)) return false
   if (!Number.isInteger(plan.confidence) || plan.confidence < 0 || plan.confidence > 100) return false
-  if (!Number.isFinite(plan.leverage) || plan.leverage < 1 || plan.leverage > 5 || !plan.analysis.trim()) return false
-  if (plan.direction === 'Long' && !(plan.take_profit > plan.entry_price && plan.entry_price > plan.stop_loss)) return false
-  if (plan.direction === 'Short' && !(plan.take_profit < plan.entry_price && plan.entry_price < plan.stop_loss)) return false
+  if (!plan.analysis.trim()) return false
+  if (plan.status === 'wait') {
+    if (plan.timing !== 'undetermined') return false
+    if (plan.direction !== undefined || plan.entry_type !== undefined || plan.entry_price !== undefined || plan.take_profit !== undefined || plan.stop_loss !== undefined || plan.leverage !== undefined) return false
+    return validLevel(response.key_levels.resistance) && validLevel(response.key_levels.support)
+  }
+  if (plan.status !== 'actionable' || (plan.timing !== 'left' && plan.timing !== 'right')) return false
+  if (!validPrice(plan.entry_price!) || !validPrice(plan.take_profit!) || !validPrice(plan.stop_loss!)) return false
+  if (!Number.isFinite(plan.leverage) || plan.leverage! < 1 || plan.leverage! > 5) return false
+  if (plan.direction === 'Long' && !(plan.take_profit! > plan.entry_price! && plan.entry_price! > plan.stop_loss!)) return false
+  if (plan.direction === 'Short' && !(plan.take_profit! < plan.entry_price! && plan.entry_price! < plan.stop_loss!)) return false
   if (plan.direction !== 'Long' && plan.direction !== 'Short') return false
   if (plan.entry_type !== 'market' && plan.entry_type !== 'limit') return false
   return validLevel(response.key_levels.resistance) && validLevel(response.key_levels.support)
@@ -191,8 +195,10 @@ function formatContextTime(timestamp: number): string {
   return new Date(timestamp).toLocaleString('zh-CN')
 }
 
-function formatAnalysisTime(timestamp: number): string {
-  return new Date(timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+function timingLabel(timing: MarketAnalysisPlan['timing']): string {
+  if (timing === 'left') return '左侧'
+  if (timing === 'right') return '右侧'
+  return '暂不可判定 / 等待确认'
 }
 
 function formatPrice(value: number): string {
@@ -214,7 +220,7 @@ function formatLeverage(value: number): string {
 }
 
 function formatMarginLoss(plan: MarketAnalysisPlan): string {
-  return String(Math.round(Math.abs(plan.entry_price - plan.stop_loss) / plan.entry_price * plan.leverage * 100))
+  return String(Math.round(Math.abs(plan.entry_price! - plan.stop_loss!) / plan.entry_price! * plan.leverage! * 100))
 }
 </script>
 
@@ -399,7 +405,10 @@ function formatMarginLoss(plan: MarketAnalysisPlan): string {
 .analysis-direction-short { background: #302126; color: #ff5475; }
 .analysis-direction-short span { background: #42262e; }
 .analysis-market-meta { padding: 5px 8px; border-radius: 8px; background: #303034; color: #a9a8b0; font-size: 11px; }
-.analysis-time { margin-left: auto; color: #95939c; font-size: 11px; }
+.analysis-time { margin-left: auto; padding: 5px 8px; border-radius: 8px; font-size: 11px; }
+.analysis-time-left { background: #302a42; color: #c5a8ff; }
+.analysis-time-right { background: #1d302b; color: #70dfb9; }
+.analysis-time-undetermined { background: #303034; color: #b0aeb8; }
 
 .analysis-prices {
   display: grid;
